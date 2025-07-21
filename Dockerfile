@@ -28,13 +28,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create data directory
-RUN mkdir -p /app/data
+# Create non-root user first
+RUN useradd --create-home --shell /bin/bash --uid 1000 appuser
 
-# Create non-root user and set proper ownership
-RUN useradd --create-home --shell /bin/bash --uid 1000 appuser \
-    && chown -R appuser:appuser /app
+# Create necessary directories and set proper ownership
+RUN mkdir -p /app/data /app/logs /app/models \
+    && chown -R appuser:appuser /app \
+    && chmod -R 755 /app/logs
 
+# Switch to non-root user
 USER appuser
 
 EXPOSE 8000
