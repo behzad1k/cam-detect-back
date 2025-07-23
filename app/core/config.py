@@ -18,7 +18,8 @@ class Settings:
   RELOAD: bool = os.getenv("RELOAD", "true").lower() == "true"
 
   # CORS Configuration
-  ALLOWED_ORIGINS: List[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+  ALLOWED_ORIGINS: List[str] = ['*']
+  # ALLOWED_ORIGINS: List[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
   # Model Configuration
   CONFIDENCE_THRESHOLD: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))

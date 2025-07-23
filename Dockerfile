@@ -26,8 +26,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
-
+COPY . ./Users/behzad1k/PycharmProjects/cam-detection/app/models/weights
 # Create non-root user first
 RUN useradd --create-home --shell /bin/bash --uid 1000 appuser
 
