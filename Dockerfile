@@ -31,8 +31,11 @@ RUN mkdir -p /app/models/weights
 # Copy application code (excluding models with .dockerignore)
 COPY . .
 
-# Create non-root user and set permissions
-RUN useradd --create-home --shell /bin/bash --uid 1000 appuser \
+# Create non-root user first
+RUN useradd --create-home --shell /bin/bash --uid 1000 appuser
+
+# Create necessary directories and set proper ownership
+RUN mkdir -p /app/data /app/logs /app/models \
     && chown -R appuser:appuser /app \
     && chmod -R 755 /app/logs
 
