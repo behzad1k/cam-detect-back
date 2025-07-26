@@ -25,10 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create directory structure first
-RUN mkdir -p /app/models/weights
-
-# Copy application code (excluding models with .dockerignore)
+# Copy application code
 COPY . .
 
 # Create non-root user first
