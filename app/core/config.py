@@ -12,7 +12,7 @@ class Settings:
   VERSION: str = "1.0.0"
   DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
-  # Server Configuration
+  # Server Configuration`
   HOST: str = os.getenv("HOST", "0.0.0.0")
   PORT: int = int(os.getenv("PORT", "8000"))
   RELOAD: bool = os.getenv("RELOAD", "true").lower() == "true"
