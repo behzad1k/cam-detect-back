@@ -1,5 +1,7 @@
 import json
 import logging
+
+import cv2
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.websocket.connection_manager import manager
@@ -28,7 +30,8 @@ async def websocket_endpoint(websocket: WebSocket):
           class_filters,
           timestamp_ms
         )
-
+        logger.debug(f"Received frame: {len(data)} bytes, models: {model_names}")
+        cv2.imwrite("debug_received.jpg", frame)  # Save for inspection
         # Create and send response
         response = frame_processor.create_response(results, timestamp_ms)
         await manager.send_json_message(response, websocket)

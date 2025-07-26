@@ -10,7 +10,8 @@ class Settings:
   ROOT_PATH: str = "/cam-detection"
   DESCRIPTION: str = "Real-time object detection by SeeDeep.Ai"
   VERSION: str = "1.0.0"
-  DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+  # DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+  DEBUG: bool = "true"
 
   # Server Configuration`
   HOST: str = os.getenv("HOST", "0.0.0.0")
@@ -34,9 +35,38 @@ class Settings:
 
   # Model Paths
   MODEL_PATHS: Dict[str, str] = {
-    "face_detection": "app/models/weights/Facemask.pt",
-    "cap_detection": "app/models/weights/Cap.pt",
-    "ppe_detection": "app/models/weights/PPE.pt",
+    "face_detection": "app/models/weights/Facemask.onnx",
+    "cap_detection": "app/models/weights/Cap.onnx",
+    "ppe_detection": "app/models/weights/PPE.onnx",
+  }
+  MODEL_CLASSES = {
+    "cap_detection": {
+      0: "no_cap",
+      1: "cap",
+    },
+    "face_detection": {
+      0: "no_mask",
+      1: "mask",
+    },
+    "ppe_detection": {
+      0: "person",
+      1: "ear",
+      2: "ear-mufs",
+      3: "face",
+      4: "face-guard",
+      5: "face-mask",
+      6: "foot",
+      7: "tool",
+      8: "glasses",
+      9: "gloves",
+      10: "helmet",
+      11: "hands",
+      12: "head",
+      13: "medical-suit",
+      14: "shoes",
+      15: "safety-suit",
+      16: "safety-vest",
+    }
   }
 
 
