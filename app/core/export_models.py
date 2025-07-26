@@ -13,9 +13,9 @@ def export_model(model_path: str, output_dir: str = "exported_models", imgsz: in
   output_path = Path(output_dir) / Path(model_path).with_suffix('.onnx').name
   model.export(
     format='onnx',
-    # imgsz=imgsz,
+    imgsz=imgsz,
     dynamic=False,
-    # simplify=False,
+    simplify=False,
     opset=12,
     nms=True,
     batch=1
