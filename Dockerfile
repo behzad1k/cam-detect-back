@@ -25,14 +25,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Create directory structure first
+RUN mkdir -p /app/models/weights
+
+# Copy application code (excluding models with .dockerignore)
 COPY . .
 
-# Create non-root user first
-RUN useradd --create-home --shell /bin/bash --uid 1000 appuser
-
-# Create necessary directories and set proper ownership
-RUN mkdir -p /app/data /app/logs /app/models \
+# Create non-root user and set permissions
+RUN useradd --create-home --shell /bin/bash --uid 1000 appuser \
     && chown -R appuser:appuser /app \
     && chmod -R 755 /app/logs
 
