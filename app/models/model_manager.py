@@ -194,5 +194,20 @@ class ModelManager:
     return list(settings.MODEL_PATHS.keys())
 
 
+  def load_all_models(self) -> Dict[str, bool]:
+    """Load all models defined in settings.MODEL_PATHS"""
+    results = {}
+    for model_name in settings.MODEL_PATHS:
+      try:
+        success = self.load_model(model_name)
+        results[model_name] = success
+        if success:
+          logger.info(f"Successfully loaded model {model_name}")
+        else:
+          logger.error(f"Failed to load model {model_name}")
+      except Exception as e:
+        logger.error(f"Error loading model {model_name}: {str(e)}", exc_info=True)
+        results[model_name] = False
+    return results
 # Global model manager instance
 model_manager = ModelManager()
