@@ -13,8 +13,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies using dnf
-RUN dnf install -y \
+# Install system dependencies using dnf (with conflict resolution)
+RUN dnf install -y --allowerasing \
     glib2 \
     libSM \
     libXext \
