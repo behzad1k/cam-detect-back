@@ -5,7 +5,7 @@ services:
     build:
       context: .
     ports:
-      - "8000:8000"
+      - "67.217.240.97:8000:8000"
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
