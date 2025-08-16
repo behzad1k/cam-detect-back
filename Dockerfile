@@ -1,8 +1,9 @@
 FROM almalinux:9
 
-# Install Python 3.11
-RUN dnf install -y python3.11 python3.11-pip
-RUN alternatives --set python /usr/bin/python3.11
+# Install Python 3.11 and create proper symlinks
+RUN dnf install -y python3.11 python3.11-pip && \
+    ln -sf /usr/bin/python3.11 /usr/bin/python && \
+    ln -sf /usr/bin/pip3.11 /usr/bin/pip
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
