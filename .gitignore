@@ -1,3 +1,4 @@
 .venv
-app/models/weights/*
+app/models/weights/PPE.pt
+app/models/weights/PPE.onnx
 logs
