@@ -38,5 +38,6 @@ class Settings:
     "cap_detection": "app/models/weights/Cap.pt",
     "ppe_detection": "app/models/weights/PPE_light.pt",
     "weapon_detection": "app/models/weights/Weapon.pt",
+    "others_detection": "app/models/weights/YOLO.pt",
   }
 settings = Settings()
