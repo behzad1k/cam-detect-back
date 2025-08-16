@@ -37,6 +37,6 @@ class Settings:
     "face_detection": "app/models/weights/Facemask.pt",
     "cap_detection": "app/models/weights/Cap.pt",
     "ppe_detection": "app/models/weights/PPE_light.pt",
-    "weapon_detection": "app/models/weights/weapon.pt",
+    "weapon_detection": "app/models/weights/Weapon.pt",
   }
 settings = Settings()
