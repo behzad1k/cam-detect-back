@@ -1,6 +1,8 @@
 
 # Add these imports at the top of your file if not already present:
 import json
+import logging
+
 from fastapi import WebSocket, WebSocketDisconnect
 from PIL import Image
 from io import BytesIO
@@ -170,31 +172,16 @@ async def process_with_your_models(image_data: bytes, models: list):
 
     # TODO: Replace this with your actual model manager integration
     # Example:
-    # from app.models.model_manager import model_manager
-    #
-    # all_detections = []
-    # for model_config in models:
-    #     detections = model_manager.process(
-    #         model_config['name'],
-    #         image_array,
-    #         model_config['class_filter']
-    #     )
-    #     all_detections.extend(detections)
-    # return all_detections
-
-    # For now, return mock detections to test the pipeline
-    mock_detections = [
-      {
-        "x1": 100, "y1": 100, "x2": 200, "y2": 200,
-        "confidence": 0.85, "class_id": 0, "label": "person"
-      },
-      {
-        "x1": 300, "y1": 150, "x2": 400, "y2": 250,
-        "confidence": 0.75, "class_id": 1, "label": "helmet"
-      }
-    ]
-
-    return mock_detections
+    from app.models.model_manager import model_manager
+    all_detections = []
+    for model_config in models:
+        detections = model_manager.process_detections(
+            model_config['name'],
+            image_array,
+            model_config['class_filter']
+        )
+        all_detections.extend(detections)
+    return all_detections
 
   except Exception as e:
     print(f"❌ Model processing error: {e}")

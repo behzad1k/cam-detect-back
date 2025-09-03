@@ -36,9 +36,9 @@ class Settings:
   MODEL_PATHS: Dict[str, str] = {
     "face_detection": "app/models/weights/Facemask.pt",
     "cap_detection": "app/models/weights/Cap.pt",
-    "ppe_detection": "app/models/weights/PPE_light.pt",
+    "ppe_detection": "app/models/weights/PPE.pt",
     "weapon_detection": "app/models/weights/Weapon.pt",
     "others_detection": "app/models/weights/YOLO.pt",
-    "fire_detection": "app/models/weights/Fire3.pt",
+    "fire_detection": "app/models/weights/Fire.pt",
   }
 settings = Settings()
