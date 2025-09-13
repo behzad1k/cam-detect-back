@@ -7,6 +7,10 @@ import time
 import uuid
 from enum import Enum
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class TrackerType(Enum):
   CENTROID = "centroid"

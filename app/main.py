@@ -11,8 +11,8 @@ from app.api.routes import router
 from app.utils.logging import setup_logging
 
 from app.api.tracking_routes import router as tracking_router
-from app.websocket.handlers import websocket_endpoint
-
+# from app.websocket.handlers import websocket_endpoint
+from app.websocket.handlers import unified_handler
 # Initialize settings and logging
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -66,7 +66,8 @@ app.include_router(router)
 # Keep your existing WebSocket endpoint for backward compatibility
 @app.websocket("/ws")
 async def websocket_route(websocket: WebSocket):
-  await websocket_endpoint(websocket)
+  await unified_handler.handle_websocket(websocket)
+  # await websocket_endpoint(websocket)
 
 
 # Startup event

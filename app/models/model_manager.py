@@ -161,14 +161,11 @@ class ModelManager:
     """Process YOLO detection results with optional class filtering"""
     try:
       detections = []
-
       # Convert class filter to set for faster lookup
       allowed_classes = set(class_filter) if class_filter else None
-
-      if isinstance(results, list):
-        for result in results:
-          detections.extend(self._extract_detections_from_result(result, model_name))
-      elif hasattr(results, 'boxes'):
+      for result in results:
+        detections.extend(self._extract_detections_from_result(result, model_name))
+      if hasattr(results, 'boxes'):
         detections.extend(self._extract_detections_from_result(results, model_name))
 
       # Apply class filtering if specified
@@ -196,7 +193,6 @@ class ModelManager:
   def _extract_detections_from_result(self, result, model_name: str) -> List[Detection]:
     """Extract detections from a single YOLO result with optimizations"""
     detections = []
-
     if not (hasattr(result, 'boxes') and result.boxes is not None):
       return detections
 
