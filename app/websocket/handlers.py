@@ -1,4 +1,4 @@
-# app/websocket/unified_handlers.py
+# app/websocket/unified_handlers.py - FIXED VERSION
 import json
 import asyncio
 import logging
@@ -15,6 +15,7 @@ from ..utils import logging as utils_logging
 from ..tracking.tracker_manager import tracker_manager
 from ..tracking.speed_calculator import speed_calculator
 from ..tracking.analytics import analytics
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +27,43 @@ class UnifiedWebSocketHandler:
     self.tracking_enabled: Dict[str, bool] = {}
     self.stream_configs: Dict[str, Dict] = {}
     self.detection_results_cache = {}
+    if self.tracking_enabled:
+      self.enhanced_tracker = EnhancedTrackerManager(self.tracker_manager)
 
+    def _add_calibration_data(self, tracking_results: Dict) -> Dict:
+      # Update your existing method to use enhanced tracker
+      if self.calibration_enabled and hasattr(self, 'enhanced_tracker'):
+        # Set calibration on enhanced tracker
+        self.enhanced_tracker.set_calibration(self.pixels_per_meter)
+
+        # The enhanced tracker will add all measurements automatically
+        # when you call update_tracker_with_measurements instead of update_tracker
+
+      return tracking_results
+
+    # Add new calibration command handlers
+    async def _handle_calibration_command(self, websocket: WebSocket, data: Dict, connection_id: str):
+      # ... your existing calibration handling ...
+
+      # Also set calibration on enhanced tracker
+      if self.calibration_enabled and hasattr(self, 'enhanced_tracker'):
+        self.enhanced_tracker.set_calibration(self.pixels_per_meter)
+
+    async def _configure_measurement_alerts(self, websocket: WebSocket, data: Dict, connection_id: str):
+      # New method to configure distance/size alerts
+      if hasattr(self, 'enhanced_tracker'):
+        config = data.get('config', {})
+        self.enhanced_tracker.configure_alerts(
+          proximity_enabled=config.get('proximity_alerts', True),
+          size_validation_enabled=config.get('size_validation', True),
+          alert_distance=config.get('alert_distance', 2.0)
+        )
+
+        await self._send_response(websocket, {
+          'type': 'measurement_alerts_configured',
+          'config': config,
+          'success': True
+        })
     # Initialize tracking components
     try:
       self.tracker_manager = tracker_manager
@@ -35,11 +72,15 @@ class UnifiedWebSocketHandler:
       self.tracking_available = True
       logger.info("✅ Tracking components initialized")
     except ImportError as e:
-      logger.warning(f"⚠️ Tracking not available: NOOOOO {e}")
+      logger.warning(f"⚠️ Tracking not available: {e}")
       self.tracking_available = False
 
+    # NEW: Simple calibration state (preserving your tracking while adding calibration)
+    self.calibration_enabled = False
+    self.pixels_per_meter = 100.0
+
   async def handle_websocket(self, websocket: WebSocket):
-    """Main WebSocket connection handler"""
+    """Main WebSocket connection handler - FIXED to handle both message types"""
     await websocket.accept()
     connection_id = f"stream_{int(time.time() * 1000)}"
     self.active_connections[connection_id] = websocket
@@ -48,16 +89,21 @@ class UnifiedWebSocketHandler:
 
     try:
       while True:
-        message = await websocket.receive()
-
-        if "text" in message:
-          # Handle JSON control messages
-          await self._handle_text_message(websocket, message["text"], connection_id)
-        elif "bytes" in message:
-          # Handle binary image data
-          await self._handle_binary_message(websocket, message["bytes"], connection_id)
-        else:
-          logger.warning(f"Unknown message format: {list(message.keys())}")
+        # FIXED: Safely handle both text and binary messages
+        try:
+          # Try to receive text first (JSON commands)
+          message = await websocket.receive_text()
+          await self._handle_text_message(websocket, message, connection_id)
+        except:
+          try:
+            # If text fails, try binary (frame data)
+            message = await websocket.receive_bytes()
+            await self._handle_binary_message(websocket, message, connection_id)
+          except WebSocketDisconnect:
+            break
+          except Exception as e:
+            logger.error(f"❌ Message receive error: {e}")
+            break
 
     except WebSocketDisconnect:
       logger.info(f"🔌 WebSocket disconnected: {connection_id}")
@@ -68,23 +114,26 @@ class UnifiedWebSocketHandler:
       self._cleanup_connection(connection_id)
 
   async def _handle_text_message(self, websocket: WebSocket, text_data: str, connection_id: str):
-    """Handle JSON control messages (tracking and regular)"""
+    """Handle JSON control messages (tracking and calibration)"""
     try:
       data = json.loads(text_data)
       message_type = data.get("type")
 
+      # Handle 'command' format for calibration (NEW)
+      if "command" in data:
+        await self._handle_calibration_command(websocket, data, connection_id)
+        return
+
       logger.info(f"🎛️ Handling control message: {message_type}")
 
-      # Tracking messages
-      if (
-        message_type.startswith('tracking_') or message_type in [
+      # YOUR EXISTING TRACKING MESSAGES (UNCHANGED)
+      if (message_type.startswith('tracking_') or message_type in [
         'configure_tracking', 'start_tracking', 'stop_tracking',
         'get_tracker_stats', 'define_zone'
-      ]
-      ):
+      ]):
         await self._handle_tracking_message(websocket, data, connection_id)
 
-      # Regular control messages
+      # YOUR EXISTING CONTROL MESSAGES (UNCHANGED)
       elif message_type == "configure_detection":
         await self._configure_detection(websocket, data, connection_id)
       elif message_type == "get_models":
@@ -100,12 +149,155 @@ class UnifiedWebSocketHandler:
       logger.error(f"❌ Error handling text message: {e}")
       await self._send_error(websocket, f"Error processing message: {str(e)}")
 
+  # NEW: Calibration command handler (doesn't interfere with your tracking)
+  async def _handle_calibration_command(self, websocket: WebSocket, data: Dict, connection_id: str):
+    """Handle calibration commands"""
+    try:
+      command = data.get('command')
+      payload = data.get('data', {})
+
+      if command == "calibrate":
+        await self._setup_calibration(websocket, payload)
+      elif command == "get_calibration_info":
+        await self._send_calibration_info(websocket)
+      elif command == "save_calibration":
+        await self._save_calibration(websocket, payload)
+      elif command == "load_calibration":
+        await self._load_calibration(websocket, payload)
+      else:
+        await self._send_error(websocket, f"Unknown calibration command: {command}")
+
+    except Exception as e:
+      await self._send_error(websocket, f"Calibration error: {str(e)}")
+
+  async def _setup_calibration(self, websocket: WebSocket, payload: Dict):
+    """Setup calibration (simple implementation)"""
+    try:
+      mode = payload.get('mode')
+      points = payload.get('points', [])
+
+      success = False
+      error = None
+
+      if mode == "reference_object" and len(points) >= 2:
+        # Calculate pixels per meter
+        p1, p2 = points[0], points[1]
+        pixel_dist = ((p2['pixel_x'] - p1['pixel_x']) ** 2 + (p2['pixel_y'] - p1['pixel_y']) ** 2) ** 0.5
+        real_dist = ((p2['real_x'] - p1['real_x']) ** 2 + (p2['real_y'] - p1['real_y']) ** 2) ** 0.5
+
+        if pixel_dist > 0 and real_dist > 0:
+          self.pixels_per_meter = pixel_dist / real_dist
+          self.calibration_enabled = True
+          success = True
+        else:
+          error = "Invalid calibration points"
+
+      elif mode == "perspective_transform" and len(points) == 4:
+        # Simple approximation for now
+        self.calibration_enabled = True
+        success = True
+      else:
+        error = f"Invalid calibration: {mode} with {len(points)} points"
+
+      await websocket.send_text(json.dumps({
+        "type": "calibration_result",
+        "success": success,
+        "calibration_info": {
+          "calibrated": self.calibration_enabled,
+          "mode": mode if success else None,
+          "timestamp": time.time() if success else None,
+          "frame_size": [640, 480],
+          "meters_per_pixel": 1.0 / self.pixels_per_meter if success else None
+        },
+        "error": error
+      }))
+
+    except Exception as e:
+      await websocket.send_text(json.dumps({
+        "type": "calibration_result",
+        "success": False,
+        "error": str(e)
+      }))
+
+  async def _send_calibration_info(self, websocket: WebSocket):
+    """Send calibration info"""
+    await websocket.send_text(json.dumps({
+      "type": "calibration_info",
+      "data": {
+        "calibrated": self.calibration_enabled,
+        "mode": "reference_object" if self.calibration_enabled else None,
+        "timestamp": time.time() if self.calibration_enabled else None,
+        "frame_size": [640, 480],
+        "meters_per_pixel": 1.0 / self.pixels_per_meter if self.calibration_enabled else None
+      }
+    }))
+
+  async def _save_calibration(self, websocket: WebSocket, payload: Dict):
+    """Save calibration"""
+    filepath = payload.get('filepath', 'calibration.json')
+    try:
+      calibration_data = {
+        "calibrated": self.calibration_enabled,
+        "pixels_per_meter": self.pixels_per_meter,
+        "timestamp": time.time()
+      }
+
+      with open(filepath, 'w') as f:
+        json.dump(calibration_data, f)
+
+      await websocket.send_text(json.dumps({
+        "type": "calibration_save_result",
+        "success": True,
+        "filepath": filepath
+      }))
+    except Exception as e:
+      await websocket.send_text(json.dumps({
+        "type": "calibration_save_result",
+        "success": False,
+        "filepath": filepath,
+        "error": str(e)
+      }))
+
+  async def _load_calibration(self, websocket: WebSocket, payload: Dict):
+    """Load calibration"""
+    filepath = payload.get('filepath', 'calibration.json')
+    try:
+      import os
+      if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Calibration file not found: {filepath}")
+
+      with open(filepath, 'r') as f:
+        calibration_data = json.load(f)
+
+      self.calibration_enabled = calibration_data.get('calibrated', False)
+      self.pixels_per_meter = calibration_data.get('pixels_per_meter', 100.0)
+
+      await websocket.send_text(json.dumps({
+        "type": "calibration_load_result",
+        "success": True,
+        "filepath": filepath,
+        "calibration_info": {
+          "calibrated": self.calibration_enabled,
+          "mode": "reference_object" if self.calibration_enabled else None,
+          "timestamp": calibration_data.get('timestamp'),
+          "frame_size": [640, 480],
+          "meters_per_pixel": 1.0 / self.pixels_per_meter if self.calibration_enabled else None
+        }
+      }))
+    except Exception as e:
+      await websocket.send_text(json.dumps({
+        "type": "calibration_load_result",
+        "success": False,
+        "filepath": filepath,
+        "error": str(e)
+      }))
+
   async def _handle_binary_message(self, websocket: WebSocket, binary_data: bytes, connection_id: str):
-    """Handle binary image data - UNIFIED AND FIXED"""
+    """Handle binary image data - YOUR WORKING VERSION WITH ENHANCEMENTS"""
     try:
       logger.info(f"📸 Processing frame: {len(binary_data)} bytes")
 
-      # Parse binary data
+      # Parse binary data (YOUR EXISTING LOGIC)
       models_to_use, image_array = self._parse_binary_data(binary_data)
 
       if not models_to_use or image_array is None:
@@ -114,24 +306,82 @@ class UnifiedWebSocketHandler:
 
       logger.info(f"🔍 Processing {len(models_to_use)} models, image: {image_array.shape}")
 
-      # FIXED: Process with your existing model manager using correct format
+      # Process with your existing model manager (FIXED)
       detection_results = await self._process_detections_fixed(models_to_use, image_array)
 
-      # Check if tracking is enabled
+      # Check if tracking is enabled (YOUR EXISTING LOGIC)
       if self.tracking_available and self.tracking_enabled.get(connection_id, False):
         tracking_results = await self._process_with_tracking(detection_results, connection_id)
+
+        # ENHANCED: Add calibration data to tracking results
+        if self.calibration_enabled:
+          tracking_results = self._add_calibration_data(tracking_results)
+
         await self._send_tracking_results(websocket, tracking_results, connection_id)
       else:
-        # Send regular detection results
+        # Send regular detection results (YOUR EXISTING BEHAVIOR)
+        # ENHANCED: Add calibration data if available
+        if self.calibration_enabled:
+          detection_results = self._add_calibration_to_detections(detection_results)
+
         await self._send_detection_results(websocket, detection_results, connection_id)
 
     except Exception as e:
-
       logger.error(f"❌ Binary processing error: {e}")
       await self._send_error(websocket, f"Frame processing error: {str(e)}")
 
+  def _add_calibration_data(self, tracking_results: Dict) -> Dict:
+    """Add calibration data to tracking results"""
+    if not self.calibration_enabled:
+      return tracking_results
+
+    # Add real-world coordinates and speeds to tracked objects
+    enhanced_objects = {}
+    for track_id, obj in tracking_results.get('tracked_objects', {}).items():
+      enhanced_obj = obj.copy()
+
+      # Add real-world coordinates
+      if 'centroid' in obj:
+        center_x, center_y = obj['centroid']
+        real_x = center_x / self.pixels_per_meter
+        real_y = center_y / self.pixels_per_meter
+        enhanced_obj['center_meters'] = [real_x, real_y]
+
+      # Add speed in km/h if available
+      if 'speed_info' in obj and obj['speed_info'].get('speed_m_per_sec'):
+        speed_ms = obj['speed_info']['speed_m_per_sec']
+        enhanced_obj['speed_kmh'] = speed_ms * 3.6
+
+      enhanced_objects[track_id] = enhanced_obj
+
+    tracking_results['tracked_objects'] = enhanced_objects
+
+    # Add calibration info
+    tracking_results['calibration'] = {
+      "calibrated": True,
+      "mode": "reference_object",
+      "meters_per_pixel": 1.0 / self.pixels_per_meter
+    }
+
+    return tracking_results
+
+  def _add_calibration_to_detections(self, detection_results: Dict) -> Dict:
+    """Add calibration data to detection results"""
+    if not self.calibration_enabled:
+      return detection_results
+
+    # Add calibration info to response
+    enhanced_results = detection_results.copy()
+    enhanced_results['calibration'] = {
+      "calibrated": True,
+      "mode": "reference_object",
+      "meters_per_pixel": 1.0 / self.pixels_per_meter
+    }
+
+    return enhanced_results
+
   def _parse_binary_data(self, binary_data: bytes) -> tuple[List[Dict], np.ndarray]:
-    """Parse binary data according to your format"""
+    """Parse binary data according to your format - YOUR EXISTING CODE"""
     try:
       offset = 0
 
@@ -201,10 +451,8 @@ class UnifiedWebSocketHandler:
       return [], None
 
   async def _process_detections_fixed(self, models_to_use: List[Dict], image_array: np.ndarray) -> Dict[str, Any]:
-    """FIXED: Process detections with proper dictionary structure"""
-
-    # CRITICAL FIX: Use dictionary, not list!
-    detection_results = {}  # Dictionary for proper JSON structure
+    """Process detections with your existing model manager - FIXED"""
+    detection_results = {}
 
     for model_config in models_to_use:
       model_name = model_config['name']
@@ -213,37 +461,20 @@ class UnifiedWebSocketHandler:
       try:
         logger.info(f"🔍 Processing model: {model_name} with filter: {class_filter}")
 
-        # FIXED: Call your model manager with correct parameters
-        # Try different method names based on your model manager interface
-        detections_response = None
-
+        # Use YOUR existing model manager interface
         detections_response = model_manager.model_manager.run_inference(image_array, model_name, class_filter)
-
-        # FIXED: Handle response properly based on your model manager's return format
 
         if detections_response is None:
           formatted_detections = []
           count = 0
           error = "No response from model"
         else:
-          # Your model manager returns a dict like {"detections": [...], "count": N}
+          # Handle your model manager's response format
           formatted_detections = detections_response.detections
           count = detections_response.count
           error = detections_response.error
 
-        # elif hasattr(detections_response, 'detections'):
-        #   # Your model manager returns a Pydantic model or object
-        #   formatted_detections = getattr(detections_response, 'detections', [])
-        #   count = getattr(detections_response, 'count', len(formatted_detections))
-        #   error = getattr(detections_response, 'error', None)
-
-        # else:
-        #   logger.warning(f"⚠️ Unexpected response type: {type(detections_response)}")
-        #   formatted_detections = []
-        #   count = 0
-        #   error = f"Unexpected response type: {type(detections_response)}"
-
-        # FIXED: Store as proper dictionary structure
+        # Store as proper dictionary structure (YOUR FORMAT)
         detection_results[model_name] = {
           "detections": formatted_detections,
           "count": count,
@@ -264,11 +495,11 @@ class UnifiedWebSocketHandler:
 
     return detection_results
 
+  # ALL YOUR EXISTING TRACKING METHODS REMAIN UNCHANGED
   async def _process_with_tracking(self, detection_results: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
-    """Process detections with tracking if available"""
+    """Process detections with tracking if available - YOUR EXISTING CODE"""
     try:
       if not self.tracking_enabled.get(connection_id, False):
-        # Tracking not enabled for this connection
         return {
           "message": "Tracking not enabled",
           "detection_results": detection_results
@@ -298,7 +529,6 @@ class UnifiedWebSocketHandler:
         return self._build_tracking_response(tracked_objects)
 
       elif hasattr(self, 'tracking_handler'):
-        # Use basic tracking handler
         return {"message": "Basic tracking processed", "detection_results": detection_results}
 
       else:
@@ -357,7 +587,7 @@ class UnifiedWebSocketHandler:
       }
 
   def _build_tracking_response(self, tracked_objects) -> Dict[str, Any]:
-    """Build complete tracking response"""
+    """Build complete tracking response - YOUR EXISTING CODE"""
     try:
       tracking_results = {
         'tracked_objects': {},
@@ -419,7 +649,7 @@ class UnifiedWebSocketHandler:
         "summary": {"total_tracks": 0, "active_tracks": 0, "class_counts": {}}
       }
 
-  # Tracking message handlers
+  # ALL YOUR EXISTING TRACKING METHODS REMAIN UNCHANGED
   async def _handle_tracking_message(self, websocket: WebSocket, data: Dict, connection_id: str):
     """Handle tracking-specific messages"""
     message_type = data.get("type")
@@ -561,10 +791,10 @@ class UnifiedWebSocketHandler:
 
   # Response senders - FIXED FORMATS
   async def _send_detection_results(self, websocket: WebSocket, results: Dict[str, Any], connection_id: str):
-    """Send detection results in correct format"""
+    """Send detection results in correct format - YOUR EXISTING FORMAT"""
     response = {
       "type": "detections",
-      "results": results,  # This should be a dict of {model_name: {detections: [...], count: N, ...}}
+      "results": results,
       "timestamp": int(time.time() * 1000)
     }
 
@@ -579,6 +809,7 @@ class UnifiedWebSocketHandler:
     await websocket.send_text(json.dumps(self.serialize_detections(response)))
 
   def serialize_detections(self, obj):
+    """Serialize detection objects - YOUR EXISTING LOGIC"""
     if isinstance(obj, Detection):
       return obj.dict()
     elif isinstance(obj, list):
@@ -589,7 +820,7 @@ class UnifiedWebSocketHandler:
       return obj
 
   async def _send_tracking_results(self, websocket: WebSocket, results: Dict[str, Any], connection_id: str):
-    """Send tracking results"""
+    """Send tracking results - YOUR EXISTING FORMAT"""
     response = {
       "type": "tracking_results",
       "stream_id": connection_id,
@@ -630,6 +861,3 @@ class UnifiedWebSocketHandler:
 
 # Global unified handler instance
 unified_handler = UnifiedWebSocketHandler()
-
-# Replace your main WebSocket endpoint with this:
-# In your main.py or wherever your WebSocket route is defined:

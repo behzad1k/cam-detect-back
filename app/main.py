@@ -9,10 +9,11 @@ from app.models.model_manager import ModelManager
 from app.websocket.connection_manager import ConnectionManager
 from app.api.routes import router
 from app.utils.logging import setup_logging
-
+from .api.routes import router as main_router
 from app.api.tracking_routes import router as tracking_router
 # from app.websocket.handlers import websocket_endpoint
-from app.websocket.handlers import unified_handler
+from .websocket.handlers import UnifiedWebSocketHandler
+
 # Initialize settings and logging
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -33,10 +34,12 @@ app.add_middleware(
   allow_methods=["*"],
   allow_headers=["*"],
 )
+app.include_router(main_router)
 app.include_router(tracking_router)
 # Global instances
 model_manager = ModelManager()
 connection_manager = ConnectionManager()
+unified_handler = UnifiedWebSocketHandler()
 # enhanced_processor = EnhancedFrameProcessor(model_manager)
 # bg_websocket_handler = BackgroundLearningWebSocketHandler(connection_manager, enhanced_processor)
 
@@ -65,8 +68,9 @@ app.include_router(router)
 # Enhanced WebSocket endpoint
 # Keep your existing WebSocket endpoint for backward compatibility
 @app.websocket("/ws")
-async def websocket_route(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket):
   await unified_handler.handle_websocket(websocket)
+
   # await websocket_endpoint(websocket)
 
 

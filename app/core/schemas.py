@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional, Any
+from enum import Enum
 from pydantic import BaseModel
 
 class Detection(BaseModel):
@@ -96,5 +97,45 @@ class TrackingResponse(BaseModel):
     tracked_objects: Dict[str, TrackedObjectResponse]
     zone_occupancy: Dict[str, List[str]]
     summary: Dict[str, Any]
+
+class CalibrationModeEnum(str, Enum):
+    perspective_transform = "perspective_transform"
+    reference_object = "reference_object"
+    vanishing_point = "vanishing_point"
+
+class CalibrationPointModel(BaseModel):
+    pixel_x: float
+    pixel_y: float
+    real_x: float
+    real_y: float
+
+class CalibrationRequest(BaseModel):
+    mode: CalibrationModeEnum
+    points: List[CalibrationPointModel]
+    frame_width: int
+    frame_height: int
+    reference_width_meters: Optional[float] = None
+    reference_height_meters: Optional[float] = None
+    vanishing_point: Optional[List[float]] = None
+    horizon_line: Optional[float] = None
+    reference_distance_meters: Optional[float] = None
+    reference_pixel_height: Optional[float] = None
+
+class WebSocketCommand(BaseModel):
+    command: str
+    data: Optional[Dict[str, Any]] = None
+
+class TrackingSettings(BaseModel):
+    enabled: bool = True
+    max_disappeared: int = 10
+    max_distance: float = 100.0
+    show_trails: bool = True
+    show_speed: bool = True
+
+class ProcessingSettings(BaseModel):
+    calibration_enabled: bool = False
+    tracking_enabled: bool = False
+    speed_detection_enabled: bool = False
+    distance_measurement_enabled: bool = False
 
 # Global handler instance
