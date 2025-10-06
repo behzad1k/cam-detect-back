@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: seedeep_db
+    environment:
+      POSTGRES_USER: seedeep
+      POSTGRES_PASSWORD: seedeep123
+      POSTGRES_DB: seedeep_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seedeep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: seedeep_app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://seedeep:seedeep123@db:5432/seedeep_db
+      DEBUG: "false"
+      HOST: 0.0.0.0
+      PORT: 8000
+      CONFIDENCE_THRESHOLD: 0.5
+      FORCE_CPU: "false"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models/weights:/app/models/weights:ro
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
