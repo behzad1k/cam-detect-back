@@ -1,0 +1,56 @@
+.venv
+app/models/weights/PPE.pt
+app/models/weights/PPE.onnx
+logs
+
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Model weights
+app/models/weights/*.pt
+app/models/weights/*.onnx
+!models/weights/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# Environment
+.env
+.env.local
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Alembic
+alembic/versions/*.pyc
+
+seedeep.db
+seedeep.db-journal
+seedeep.sqbpro
