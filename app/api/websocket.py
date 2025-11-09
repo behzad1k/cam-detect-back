@@ -20,6 +20,7 @@ from app.core.detection.yolo_detector import detector
 from app.core.tracking.speed_calculator import speed_calculator
 from app.schemas.detection import Detection
 from app.config import settings
+from app.utils.FPSRateLimiter import FPSRateLimiter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -264,7 +265,7 @@ class WebSocketHandler:
 
 @router.websocket("/ws/camera/{camera_id}")
 async def camera_websocket(websocket: WebSocket, camera_id: str):
-  """WebSocket endpoint for individual camera streams - OPTIMIZED"""
+  """WebSocket endpoint for individual camera streams - OPTIMIZED WITH FPS LIMITER"""
   await manager.connect(websocket, camera_id)
 
   # FIX: Get camera ONCE at the start, not for every frame
@@ -278,12 +279,11 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
       logger.info(f"📹 Camera {camera_id} config: rtsp_url={camera.rtsp_url}")
       logger.info(f"📹 Active models: {camera.active_models}")
 
-      # Frame rate configuration
+      # Frame rate configuration with FPS limiter
       target_fps = camera.fps if camera.fps else 15
-      frame_delay = 1.0 / target_fps
-      last_frame_time = 0
+      fps_limiter = FPSRateLimiter(target_fps)  # NEW: Initialize FPS limiter
 
-      logger.info(f"🎥 Target FPS: {target_fps}, Frame delay: {frame_delay:.3f}s")
+      logger.info(f"🎥 Target FPS: {target_fps}")
 
       # Handle webcam
       if camera.rtsp_url and camera.rtsp_url.startswith('webcam://'):
@@ -298,19 +298,18 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
         logger.info(f"📹 Webcam mode enabled for camera {camera_id}")
 
         frame_count = 0
-        last_frame_time = 0
+        processed_count = 0
 
         while True:
           try:
             # Receive binary frame from client
             data = await websocket.receive_bytes()
 
-            current_time = time.time()
-            time_since_last_frame = current_time - last_frame_time
+            frame_count += 1
 
-            # Rate limiting
-            if time_since_last_frame < frame_delay:
-              continue
+            # NEW: Check if we should process this frame based on FPS limiter
+            if not fps_limiter.should_process_frame():
+              continue  # Skip this frame to maintain target FPS
 
             # Parse binary data
             offset = 0
@@ -337,8 +336,7 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
 
             image_array = np.array(pil_image)
 
-            frame_count += 1
-            last_frame_time = time.time()
+            processed_count += 1
 
             # FIX: Pass camera object instead of doing DB query
             result = await WebSocketHandler.process_frame(camera, image_array)
@@ -351,8 +349,14 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
             # Send response
             await websocket.send_json(result)
 
-            if frame_count % 30 == 0:
-              logger.info(f"📊 Processed {frame_count} webcam frames for camera {camera_id}")
+            if processed_count % 30 == 0:
+              actual_fps = fps_limiter.get_actual_fps()
+              logger.info(f"📊 Webcam camera {camera_id}:")
+              logger.info(f"   Received: {frame_count} frames")
+              logger.info(f"   Processed: {processed_count} frames")
+              logger.info(f"   Target FPS: {target_fps}")
+              logger.info(f"   Actual FPS: {actual_fps:.2f}")
+
               if result.get('results'):
                 total_detections = sum(
                   r.get('count', 0) for r in result['results'].values()
@@ -389,31 +393,23 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
         })
 
         frame_count = 0
-
-        # OPTIMIZATION: Skip frames to reduce latency
-        frame_skip = max(1, int(30 / target_fps))
+        processed_count = 0
 
         while rtsp_manager.is_running(camera_id):
-          current_time = time.time()
-          time_since_last_frame = current_time - last_frame_time
-
-          # Rate limiting
-          if time_since_last_frame < frame_delay:
-            await asyncio.sleep(0.01)
-            continue
-
-          # OPTIMIZATION: Skip intermediate frames
-          for _ in range(frame_skip - 1):
-            rtsp_manager.get_frame(camera_id)
-
+          # Read frame from RTSP manager
           frame = rtsp_manager.get_frame(camera_id)
 
           if frame is None:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.01)
             continue
 
           frame_count += 1
-          last_frame_time = time.time()
+
+          # NEW: Check if we should process this frame based on FPS limiter
+          if not fps_limiter.should_process_frame():
+            continue  # Skip this frame to maintain target FPS
+
+          processed_count += 1
 
           # OPTIMIZATION: Resize frame for faster processing
           if frame.shape[0] > 720:
@@ -432,8 +428,14 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
           # Send response
           await websocket.send_json(result)
 
-          if frame_count % 30 == 0:
-            logger.info(f"📊 Sent {frame_count} frames for camera {camera_id}")
+          if processed_count % 30 == 0:
+            actual_fps = fps_limiter.get_actual_fps()
+            logger.info(f"📊 RTSP camera {camera_id}:")
+            logger.info(f"   Read: {frame_count} frames")
+            logger.info(f"   Processed: {processed_count} frames")
+            logger.info(f"   Target FPS: {target_fps}")
+            logger.info(f"   Actual FPS: {actual_fps:.2f}")
+
             if result.get('results'):
               total_detections = sum(
                 r.get('count', 0) for r in result['results'].values()
@@ -454,7 +456,6 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
       except:
         pass
       break
-
 
 @router.websocket("/ws")
 async def legacy_websocket(websocket: WebSocket):
