@@ -1,4 +1,4 @@
-# COMPLETE REPLACEMENT for app/api/websocket.py
+# app/api/websocket.py - FIX DETECTION AND LATENCY
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,361 +26,394 @@ logger = logging.getLogger(__name__)
 
 
 class RTSPStreamManager:
-    """Manage RTSP streams for cameras"""
+  """Manage RTSP streams for cameras"""
 
-    def __init__(self):
-        self.streams: Dict[str, cv2.VideoCapture] = {}
-        self.running: Dict[str, bool] = {}
+  def __init__(self):
+    self.streams: Dict[str, cv2.VideoCapture] = {}
+    self.running: Dict[str, bool] = {}
 
-    def start_stream(self, camera_id: str, rtsp_url: str) -> bool:
-        """Start streaming from RTSP URL"""
-        if camera_id in self.streams:
-            self.stop_stream(camera_id)
+  def start_stream(self, camera_id: str, rtsp_url: str) -> bool:
+    """Start streaming from RTSP URL"""
+    if camera_id in self.streams:
+      self.stop_stream(camera_id)
 
-        logger.info(f"Opening RTSP stream: {rtsp_url}")
-        cap = cv2.VideoCapture(rtsp_url)
+    logger.info(f"Opening RTSP stream: {rtsp_url}")
+    cap = cv2.VideoCapture(rtsp_url)
 
-        if not cap.isOpened():
-            logger.error(f"Failed to open RTSP stream: {rtsp_url}")
-            return False
+    # OPTIMIZATION: Set buffer size to 1 for low latency
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        self.streams[camera_id] = cap
-        self.running[camera_id] = True
-        logger.info(f"✅ Started RTSP stream for camera {camera_id}")
-        return True
+    if not cap.isOpened():
+      logger.error(f"Failed to open RTSP stream: {rtsp_url}")
+      return False
 
-    def stop_stream(self, camera_id: str):
-        """Stop streaming for a camera"""
-        self.running[camera_id] = False
-        if camera_id in self.streams:
-            self.streams[camera_id].release()
-            del self.streams[camera_id]
-            logger.info(f"🔴 Stopped RTSP stream for camera {camera_id}")
+    self.streams[camera_id] = cap
+    self.running[camera_id] = True
+    logger.info(f"✅ Started RTSP stream for camera {camera_id}")
+    return True
 
-    def get_frame(self, camera_id: str) -> Optional[np.ndarray]:
-        """Get a frame from the stream"""
-        if camera_id not in self.streams:
-            return None
+  def stop_stream(self, camera_id: str):
+    """Stop streaming for a camera"""
+    self.running[camera_id] = False
+    if camera_id in self.streams:
+      self.streams[camera_id].release()
+      del self.streams[camera_id]
+      logger.info(f"🔴 Stopped RTSP stream for camera {camera_id}")
 
-        cap = self.streams[camera_id]
-        ret, frame = cap.read()
+  def get_frame(self, camera_id: str) -> Optional[np.ndarray]:
+    """Get a frame from the stream"""
+    if camera_id not in self.streams:
+      return None
 
-        if not ret:
-            logger.warning(f"Failed to read frame from camera {camera_id}")
-            return None
+    cap = self.streams[camera_id]
+    ret, frame = cap.read()
 
-        return frame
+    if not ret:
+      logger.warning(f"Failed to read frame from camera {camera_id}")
+      return None
 
-    def is_running(self, camera_id: str) -> bool:
-        """Check if stream is running"""
-        return self.running.get(camera_id, False)
+    return frame
+
+  def is_running(self, camera_id: str) -> bool:
+    """Check if stream is running"""
+    return self.running.get(camera_id, False)
 
 
-# Global instances
 rtsp_manager = RTSPStreamManager()
 
 
 class ConnectionManager:
-    """Manage WebSocket connections per camera"""
+  """Manage WebSocket connections per camera"""
 
-    def __init__(self):
-        self.active_connections: Dict[str, Set[WebSocket]] = {}
+  def __init__(self):
+    self.active_connections: Dict[str, Set[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket, camera_id: str):
-        """Connect a client to a camera stream"""
-        await websocket.accept()
+  async def connect(self, websocket: WebSocket, camera_id: str):
+    """Connect a client to a camera stream"""
+    await websocket.accept()
 
-        if camera_id not in self.active_connections:
-            self.active_connections[camera_id] = set()
+    if camera_id not in self.active_connections:
+      self.active_connections[camera_id] = set()
 
-        self.active_connections[camera_id].add(websocket)
-        logger.info(f"🔌 Client connected to camera {camera_id}")
+    self.active_connections[camera_id].add(websocket)
+    logger.info(f"🔌 Client connected to camera {camera_id}")
 
-    def disconnect(self, websocket: WebSocket, camera_id: str):
-        """Disconnect a client from a camera stream"""
-        if camera_id in self.active_connections:
-            self.active_connections[camera_id].discard(websocket)
+  def disconnect(self, websocket: WebSocket, camera_id: str):
+    """Disconnect a client from a camera stream"""
+    if camera_id in self.active_connections:
+      self.active_connections[camera_id].discard(websocket)
 
-            if not self.active_connections[camera_id]:
-                del self.active_connections[camera_id]
+      if not self.active_connections[camera_id]:
+        del self.active_connections[camera_id]
 
-        logger.info(f"🔌 Client disconnected from camera {camera_id}")
+    logger.info(f"🔌 Client disconnected from camera {camera_id}")
 
 
 manager = ConnectionManager()
 
 
 class WebSocketHandler:
-    """Handle WebSocket frame processing"""
+  """Handle WebSocket frame processing"""
 
-    @staticmethod
-    async def process_frame(camera_id: str, image: np.ndarray, db: AsyncSession):
-        """Process a single frame with tracking, speed, and distance detection"""
-        camera = await camera_service.get_camera(db, camera_id)
-        if not camera:
-            return {"error": f"Camera {camera_id} not found"}
+  @staticmethod
+  async def process_frame(camera_id: str, image: np.ndarray, db: AsyncSession):
+    """Process a single frame with detection and tracking"""
+    camera = await camera_service.get_camera(db, camera_id)
+    if not camera:
+      return {"error": f"Camera {camera_id} not found"}
 
-        if not stream_manager.is_active(camera_id):
-            stream_manager.add_stream(camera)
+    if not stream_manager.is_active(camera_id):
+      stream_manager.add_stream(camera)
 
-        stream = stream_manager.get_stream(camera_id)
-        results = {}
+    stream = stream_manager.get_stream(camera_id)
+    results = {}
+    detected_objects = []
 
-        detected_objects = []
+    # DETECTION with proper error handling
+    if camera.features.get("detection", True):
+      if not camera.active_models or len(camera.active_models) == 0:
+        logger.warning(f"⚠️ Camera {camera_id} has detection enabled but no active models!")
+        logger.info(f"💡 Configure models via: PATCH /cameras/{camera_id}")
+      else:
+        logger.debug(f"🔍 Running detection with models: {camera.active_models}")
 
-        # ✅ FIXED: Enhanced detection with proper logging
-        if camera.features.get("detection", True):
-            # Check if models are configured
-            if not camera.active_models or len(camera.active_models) == 0:
-                logger.warning(f"⚠️ Camera {camera_id} ({camera.name}) has detection enabled but no active models!")
-                logger.info(f"💡 Available models: {list(settings.AVAILABLE_MODELS.keys())}")
-                logger.info(f"💡 To fix: Update camera active_models via API or database")
-            else:
-                logger.debug(f"🔍 Running detection with models: {camera.active_models}")
-
-            for model_name in camera.active_models:
-                try:
-                    class_filter = camera.features.get("class_filters", {}).get(model_name)
-
-                    logger.debug(f"🤖 Running model: {model_name}")
-                    model_result = detector.detect(image, model_name, class_filter)
-                    results[model_name] = model_result.dict()
-
-                    logger.debug(f"✅ {model_name}: {model_result.count} detections")
-
-                    for det_dict in model_result.detections:
-                        det = Detection(**det_dict)
-                        detected_objects.append(det)
-
-                except Exception as e:
-                    logger.error(f"❌ Error running model {model_name}: {e}", exc_info=True)
-                    results[model_name] = {
-                        "detections": [],
-                        "count": 0,
-                        "model": model_name,
-                        "error": str(e)
-                    }
-
-        # Tracking
-        tracking_data = None
-        if camera.features.get("tracking", False) and stream.tracker:
-            tracking_classes = camera.features.get("tracking_classes", [])
-
-            if tracking_classes:
-                filtered_detections = [
-                    det for det in detected_objects
-                    if det.label in tracking_classes
-                ]
-            else:
-                filtered_detections = detected_objects
-
-            tracked_objects = stream.tracker.update(filtered_detections)
-
-            tracking_data = {
-                "tracked_objects": {},
-                "summary": {
-                    "total_tracks": len(tracked_objects),
-                    "active_tracks": sum(
-                        1 for obj in tracked_objects.values()
-                        if obj.time_since_update < 5
-                    )
-                }
+      for model_name in camera.active_models:
+        try:
+          # Check if model file exists
+          if model_name not in settings.AVAILABLE_MODELS:
+            logger.error(f"❌ Model {model_name} not in AVAILABLE_MODELS")
+            results[model_name] = {
+              "detections": [],
+              "count": 0,
+              "model": model_name,
+              "error": f"Model {model_name} not configured"
             }
+            continue
 
-            for track_id, obj in tracked_objects.items():
-                obj_data = {
-                    "track_id": obj.track_id,
-                    "class_name": obj.class_name,
-                    "bbox": obj.bbox,
-                    "centroid": obj.centroid,
-                    "confidence": obj.confidence,
-                    "age": obj.age,
-                    "velocity": obj.velocity,
-                    "distance_traveled": obj.distance_traveled,
-                }
+          # Try to load model if not loaded
+          if model_name not in detector.models:
+            logger.info(f"Loading model {model_name}...")
+            success = detector.load_model(model_name)
+            if not success:
+              results[model_name] = {
+                "detections": [],
+                "count": 0,
+                "model": model_name,
+                "error": f"Failed to load model"
+              }
+              continue
 
-                speed_classes = camera.features.get("speed_classes", [])
-                if camera.features.get("speed", False) and (
-                        not speed_classes or obj.class_name in speed_classes
-                ):
-                    speed_data = speed_calculator.calculate_speed(
-                        obj.velocity,
-                        camera.pixels_per_meter if camera.is_calibrated else None
-                    )
-                    obj_data.update(speed_data)
+          class_filter = camera.features.get("class_filters", {}).get(model_name)
 
-                distance_classes = camera.features.get("distance_classes", [])
-                if camera.features.get("distance", False) and camera.is_calibrated and (
-                        not distance_classes or obj.class_name in distance_classes
-                ):
-                    real_x = obj.centroid[0] / camera.pixels_per_meter
-                    real_y = obj.centroid[1] / camera.pixels_per_meter
+          logger.debug(f"🤖 Running model: {model_name} with filter: {class_filter}")
+          model_result = detector.detect(image, model_name, class_filter)
+          results[model_name] = model_result.dict()
 
-                    obj_data["position_meters"] = {
-                        "x": real_x,
-                        "y": real_y
-                    }
+          logger.debug(f"✅ {model_name}: {model_result.count} detections")
 
-                    distance_from_camera = np.sqrt(real_x ** 2 + real_y ** 2)
-                    obj_data["distance_from_camera_m"] = distance_from_camera
+          for det_dict in model_result.detections:
+            det = Detection(**det_dict)
+            detected_objects.append(det)
 
-                tracking_data["tracked_objects"][track_id] = obj_data
+        except Exception as e:
+          logger.error(f"❌ Error running model {model_name}: {e}", exc_info=True)
+          results[model_name] = {
+            "detections": [],
+            "count": 0,
+            "model": model_name,
+            "error": str(e)
+          }
 
-            results["tracking"] = tracking_data
+    # TRACKING
+    tracking_data = None
+    if camera.features.get("tracking", False) and stream.tracker:
+      tracking_classes = camera.features.get("tracking_classes", [])
 
-        return {
-            "camera_id": camera_id,
-            "timestamp": int(time.time() * 1000),
-            "results": results,
-            "calibrated": camera.is_calibrated
+      if tracking_classes:
+        filtered_detections = [
+          det for det in detected_objects
+          if det.label in tracking_classes
+        ]
+      else:
+        filtered_detections = detected_objects
+
+      tracked_objects = stream.tracker.update(filtered_detections)
+
+      tracking_data = {
+        "tracked_objects": {},
+        "summary": {
+          "total_tracks": len(tracked_objects),
+          "active_tracks": sum(
+            1 for obj in tracked_objects.values()
+            if obj.time_since_update < 5
+          )
         }
+      }
+
+      for track_id, obj in tracked_objects.items():
+        obj_data = {
+          "track_id": obj.track_id,
+          "class_name": obj.class_name,
+          "bbox": obj.bbox,
+          "centroid": obj.centroid,
+          "confidence": obj.confidence,
+          "age": obj.age,
+          "velocity": obj.velocity,
+          "distance_traveled": obj.distance_traveled,
+        }
+
+        speed_classes = camera.features.get("speed_classes", [])
+        if camera.features.get("speed", False) and (
+          not speed_classes or obj.class_name in speed_classes
+        ):
+          speed_data = speed_calculator.calculate_speed(
+            obj.velocity,
+            camera.pixels_per_meter if camera.is_calibrated else None
+          )
+          obj_data.update(speed_data)
+
+        distance_classes = camera.features.get("distance_classes", [])
+        if camera.features.get("distance", False) and camera.is_calibrated and (
+          not distance_classes or obj.class_name in distance_classes
+        ):
+          real_x = obj.centroid[0] / camera.pixels_per_meter
+          real_y = obj.centroid[1] / camera.pixels_per_meter
+
+          obj_data["position_meters"] = {
+            "x": real_x,
+            "y": real_y
+          }
+
+          distance_from_camera = np.sqrt(real_x ** 2 + real_y ** 2)
+          obj_data["distance_from_camera_m"] = distance_from_camera
+
+        tracking_data["tracked_objects"][track_id] = obj_data
+
+      results["tracking"] = tracking_data
+
+    return {
+      "camera_id": camera_id,
+      "timestamp": int(time.time() * 1000),
+      "results": results,
+      "calibrated": camera.is_calibrated
+    }
 
 
 @router.websocket("/ws/camera/{camera_id}")
 async def camera_websocket(websocket: WebSocket, camera_id: str):
-    """WebSocket endpoint for individual camera streams with rate limiting"""
-    await manager.connect(websocket, camera_id)
+  """WebSocket endpoint for individual camera streams with REDUCED LATENCY"""
+  await manager.connect(websocket, camera_id)
 
-    async for db in get_db():
-        try:
-            # Get camera configuration
-            camera = await camera_service.get_camera(db, camera_id)
-            if not camera:
-                await websocket.send_json({"error": f"Camera {camera_id} not found"})
-                break
+  async for db in get_db():
+    try:
+      camera = await camera_service.get_camera(db, camera_id)
+      if not camera:
+        await websocket.send_json({"error": f"Camera {camera_id} not found"})
+        break
 
-            logger.info(f"📹 Camera {camera_id} config: rtsp_url={camera.rtsp_url}")
+      logger.info(f"📹 Camera {camera_id} config: rtsp_url={camera.rtsp_url}")
+      logger.info(f"📹 Active models: {camera.active_models}")
 
-            # ✅ ADD: Frame rate configuration
-            target_fps = camera.fps if camera.fps else 15
-            frame_delay = 1.0 / target_fps  # Delay between frames
-            last_frame_time = 0
+      # Frame rate configuration
+      target_fps = camera.fps if camera.fps else 15
+      frame_delay = 1.0 / target_fps
+      last_frame_time = 0
 
-            logger.info(f"🎥 Target FPS: {target_fps}, Frame delay: {frame_delay:.3f}s")
+      logger.info(f"🎥 Target FPS: {target_fps}, Frame delay: {frame_delay:.3f}s")
 
-            # If camera has RTSP URL, stream from it
-            if camera.rtsp_url:
-                logger.info(f"🎥 Starting RTSP stream for {camera_id}: {camera.rtsp_url}")
+      # Handle webcam
+      if camera.rtsp_url and camera.rtsp_url.startswith('webcam://'):
+        await websocket.send_json({
+          "camera_id": camera_id,
+          "status": "connected",
+          "message": "Webcam mode - send frames from client",
+          "fps": target_fps
+        })
+        # In webcam mode, wait for client to send frames
+        # (handled by legacy endpoint)
+        break
 
-                if not rtsp_manager.start_stream(camera_id, camera.rtsp_url):
-                    await websocket.send_json({
-                        "camera_id": camera_id,
-                        "error": f"Failed to open RTSP stream: {camera.rtsp_url}"
-                    })
-                    break
+      # Handle RTSP stream
+      if camera.rtsp_url and not camera.rtsp_url.startswith('webcam://'):
+        logger.info(f"🎥 Starting RTSP stream for {camera_id}: {camera.rtsp_url}")
 
-                # Send initial connection message
-                await websocket.send_json({
-                    "camera_id": camera_id,
-                    "status": "connected",
-                    "message": "RTSP stream started",
-                    "fps": target_fps
-                })
+        if not rtsp_manager.start_stream(camera_id, camera.rtsp_url):
+          await websocket.send_json({
+            "camera_id": camera_id,
+            "error": f"Failed to open RTSP stream: {camera.rtsp_url}"
+          })
+          break
 
-                frame_count = 0
+        await websocket.send_json({
+          "camera_id": camera_id,
+          "status": "connected",
+          "message": "RTSP stream started",
+          "fps": target_fps
+        })
 
-                # Stream frames continuously with rate limiting
-                while rtsp_manager.is_running(camera_id):
-                    # ✅ ADD: Frame rate limiting
-                    current_time = time.time()
-                    time_since_last_frame = current_time - last_frame_time
+        frame_count = 0
 
-                    if time_since_last_frame < frame_delay:
-                        # Sleep for remaining time to maintain target FPS
-                        await asyncio.sleep(frame_delay - time_since_last_frame)
-                        continue
+        # OPTIMIZATION: Skip frames to reduce latency
+        frame_skip = max(1, int(30 / target_fps))  # If 30fps source, skip frames
 
-                    frame = rtsp_manager.get_frame(camera_id)
+        while rtsp_manager.is_running(camera_id):
+          current_time = time.time()
+          time_since_last_frame = current_time - last_frame_time
 
-                    if frame is None:
-                        logger.warning(f"No frame from camera {camera_id}, retrying...")
-                        await asyncio.sleep(0.1)
-                        continue
+          # Rate limiting
+          if time_since_last_frame < frame_delay:
+            await asyncio.sleep(0.01)  # Small sleep to prevent CPU spinning
+            continue
 
-                    frame_count += 1
-                    last_frame_time = time.time()  # ✅ UPDATE: Track frame time
+          # OPTIMIZATION: Skip intermediate frames
+          for _ in range(frame_skip - 1):
+            rtsp_manager.get_frame(camera_id)  # Discard
 
-                    # Process frame with detection/tracking
-                    result = await WebSocketHandler.process_frame(camera_id, frame, db)
+          frame = rtsp_manager.get_frame(camera_id)
 
-                    # Encode frame to base64
-                    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                    frame_base64 = base64.b64encode(buffer).decode('utf-8')
-                    result['frame'] = frame_base64
+          if frame is None:
+            await asyncio.sleep(0.1)
+            continue
 
-                    # Send response
-                    await websocket.send_json(result)
+          frame_count += 1
+          last_frame_time = time.time()
 
-                    if frame_count % 30 == 0:
-                        logger.info(f"📊 Sent {frame_count} frames for camera {camera_id}")
-                        # Log detection summary
-                        if result.get('results'):
-                            total_detections = sum(
-                                r.get('count', 0) for r in result['results'].values()
-                                if isinstance(r, dict)
-                            )
-                            logger.info(f"   Total detections: {total_detections}")
+          # OPTIMIZATION: Resize frame for faster processing
+          if frame.shape[0] > 720:
+            scale = 720 / frame.shape[0]
+            new_width = int(frame.shape[1] * scale)
+            frame = cv2.resize(frame, (new_width, 720))
 
-            else:
-                # No RTSP URL - expect frames from client (webcam mode)
-                logger.info(f"📷 Waiting for frames from client for camera {camera_id}")
+          # Process frame
+          result = await WebSocketHandler.process_frame(camera_id, frame, db)
 
-                await websocket.send_json({
-                    "camera_id": camera_id,
-                    "status": "connected",
-                    "message": "Ready to receive frames"
-                })
+          # OPTIMIZATION: Reduce JPEG quality for faster encoding
+          _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+          frame_base64 = base64.b64encode(buffer).decode('utf-8')
+          result['frame'] = frame_base64
 
-        except WebSocketDisconnect:
-            rtsp_manager.stop_stream(camera_id)
-            manager.disconnect(websocket, camera_id)
-            logger.info(f"🔴 WebSocket disconnected for camera {camera_id}")
-            break
-        except Exception as e:
-            logger.error(f"❌ WebSocket error for camera {camera_id}: {e}", exc_info=True)
-            rtsp_manager.stop_stream(camera_id)
-            try:
-                await websocket.send_json({"error": str(e)})
-            except:
-                pass
-            break
+          # Send response
+          await websocket.send_json(result)
+
+          if frame_count % 30 == 0:
+            logger.info(f"📊 Sent {frame_count} frames for camera {camera_id}")
+            if result.get('results'):
+              total_detections = sum(
+                r.get('count', 0) for r in result['results'].values()
+                if isinstance(r, dict) and 'count' in r
+              )
+              logger.info(f"   Total detections: {total_detections}")
+
+    except WebSocketDisconnect:
+      rtsp_manager.stop_stream(camera_id)
+      manager.disconnect(websocket, camera_id)
+      logger.info(f"🔴 WebSocket disconnected for camera {camera_id}")
+      break
+    except Exception as e:
+      logger.error(f"❌ WebSocket error for camera {camera_id}: {e}", exc_info=True)
+      rtsp_manager.stop_stream(camera_id)
+      try:
+        await websocket.send_json({"error": str(e)})
+      except:
+        pass
+      break
 
 
 @router.websocket("/ws")
 async def legacy_websocket(websocket: WebSocket):
-    """Legacy WebSocket endpoint (backward compatibility)"""
-    await websocket.accept()
-    logger.info("🔌 Legacy WebSocket connected")
+  """Legacy WebSocket endpoint (webcam mode)"""
+  await websocket.accept()
+  logger.info("🔌 Legacy WebSocket connected (webcam mode)")
 
-    async for db in get_db():
-        try:
-            while True:
-                data = await websocket.receive_bytes()
+  async for db in get_db():
+    try:
+      while True:
+        data = await websocket.receive_bytes()
 
-                offset = 0
-                camera_id_len = data[offset]
-                offset += 1
-                camera_id = data[offset:offset + camera_id_len].decode('utf-8')
-                offset += camera_id_len
+        offset = 0
+        camera_id_len = data[offset]
+        offset += 1
+        camera_id = data[offset:offset + camera_id_len].decode('utf-8')
+        offset += camera_id_len
 
-                timestamp = int.from_bytes(data[offset:offset + 4], 'little')
-                offset += 4
+        timestamp = int.from_bytes(data[offset:offset + 4], 'little')
+        offset += 4
 
-                image_data = data[offset:]
-                image_io = BytesIO(image_data)
-                pil_image = Image.open(image_io)
+        image_data = data[offset:]
+        image_io = BytesIO(image_data)
+        pil_image = Image.open(image_io)
 
-                if pil_image.mode != 'RGB':
-                    pil_image = pil_image.convert('RGB')
+        if pil_image.mode != 'RGB':
+          pil_image = pil_image.convert('RGB')
 
-                image_array = np.array(pil_image)
+        image_array = np.array(pil_image)
 
-                result = await WebSocketHandler.process_frame(camera_id, image_array, db)
-                await websocket.send_json(result)
+        result = await WebSocketHandler.process_frame(camera_id, image_array, db)
+        await websocket.send_json(result)
 
-        except WebSocketDisconnect:
-            logger.info("🔴 Legacy WebSocket disconnected")
-            break
-        except Exception as e:
-            logger.error(f"❌ Legacy WebSocket error: {e}")
-            break
+    except WebSocketDisconnect:
+      logger.info("🔴 Legacy WebSocket disconnected")
+      break
+    except Exception as e:
+      logger.error(f"❌ Legacy WebSocket error: {e}")
+      break

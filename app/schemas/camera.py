@@ -1,3 +1,5 @@
+# app/schemas/camera.py - COMPLETE REPLACEMENT
+
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -6,43 +8,10 @@ from datetime import datetime
 class CameraBase(BaseModel):
   name: str
   location: Optional[str] = None
-  rtsp_url: Optional[str] = None
+  rtsp_url: Optional[str] = None  # Make sure this is properly defined
   width: int = 640
   height: int = 480
-  fps: int = 30
-
-
-class CameraCreate(CameraBase):
-  features: Dict[str, Any] = Field(
-    default_factory=lambda: {
-      "detection": True,
-      "tracking": False,
-      "speed": False,
-      "distance": False,
-      "counting": False,
-      # Class filters per model
-      "class_filters": {},
-      # Classes to track
-      "tracking_classes": [],
-      # Classes to calculate speed for
-      "speed_classes": [],
-      # Classes to calculate distance for
-      "distance_classes": []
-    }
-  )
-  active_models: List[str] = Field(default_factory=list)
-
-  # Optional calibration during creation
-  calibration: Optional['CameraCalibration'] = None
-
-
-class CameraUpdate(BaseModel):
-  name: Optional[str] = None
-  location: Optional[str] = None
-  rtsp_url: Optional[str] = None
-  features: Optional[Dict[str, Any]] = None
-  active_models: Optional[List[str]] = None
-  is_active: Optional[bool] = None
+  fps: int = 15  # Default to 15 FPS
 
 
 class CalibrationPoint(BaseModel):
@@ -57,6 +26,52 @@ class CameraCalibration(BaseModel):
   points: List[CalibrationPoint]
   reference_width_meters: Optional[float] = None
   reference_height_meters: Optional[float] = None
+
+
+class CameraCreate(CameraBase):
+  # Feature configuration
+  features: Optional[Dict[str, Any]] = Field(
+    default_factory=lambda: {
+      "detection": True,
+      "tracking": False,
+      "speed": False,
+      "distance": False,
+      "counting": False,
+      "class_filters": {},
+      "tracking_classes": [],
+      "speed_classes": [],
+      "distance_classes": []
+    }
+  )
+
+  # Models will be auto-detected from selected classes
+  active_models: Optional[List[str]] = Field(default_factory=list)
+
+  # Selected classes (frontend sends this)
+  selected_classes: Optional[List[str]] = Field(default_factory=list)
+
+  # Calibration data
+  calibration: Optional[CameraCalibration] = None
+
+  # Connection settings
+  protocol: Optional[str] = "rtsp"
+  ipAddress: Optional[str] = None
+  port: Optional[str] = "554"
+
+  class Config:
+    extra = "allow"  # Allow extra fields from frontend
+
+
+class CameraUpdate(BaseModel):
+  name: Optional[str] = None
+  location: Optional[str] = None
+  rtsp_url: Optional[str] = None
+  features: Optional[Dict[str, Any]] = None
+  active_models: Optional[List[str]] = None
+  is_active: Optional[bool] = None
+
+  class Config:
+    extra = "allow"
 
 
 class CameraResponse(CameraBase):
@@ -74,17 +89,12 @@ class CameraResponse(CameraBase):
 
 
 class FeatureConfiguration(BaseModel):
-  """Model for updating camera feature configuration"""
   detection: Optional[bool] = None
   tracking: Optional[bool] = None
   speed: Optional[bool] = None
   distance: Optional[bool] = None
   counting: Optional[bool] = None
-
-  # Model-specific class filters
   class_filters: Optional[Dict[str, List[str]]] = None
-
-  # Feature-specific class selections
   tracking_classes: Optional[List[str]] = None
   speed_classes: Optional[List[str]] = None
   distance_classes: Optional[List[str]] = None

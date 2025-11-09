@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
-
+import cv2
+import base64
+from pydantic import BaseModel
 from app.database.base import get_db
 from app.schemas.camera import (
   CameraCreate, CameraUpdate, CameraCalibration, CameraResponse, FeatureConfiguration
@@ -116,3 +118,50 @@ async def update_camera_features(
             detail=f"Camera {camera_id} not found"
         )
     return camera
+
+
+class TestConnectionRequest(BaseModel):
+  rtsp_url: str
+
+
+@router.post("/test-connection")
+async def test_camera_connection(request: TestConnectionRequest):
+  """Test camera connection and return a preview frame"""
+  try:
+    cap = cv2.VideoCapture(request.rtsp_url)
+
+    if not cap.isOpened():
+      raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Failed to connect to camera"
+      )
+
+    # Read a frame
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret:
+      raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Failed to read frame from camera"
+      )
+
+    # Resize frame for preview
+    frame = cv2.resize(frame, (640, 480))
+
+    # Encode frame to JPEG
+    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    frame_base64 = base64.b64encode(buffer).decode('utf-8')
+
+    return {
+      "success": True,
+      "preview_frame": frame_base64,
+      "width": 640,
+      "height": 480
+    }
+
+  except Exception as e:
+    raise HTTPException(
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+      detail=f"Connection test failed: {str(e)}"
+    )
