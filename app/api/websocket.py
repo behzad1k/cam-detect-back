@@ -1,4 +1,4 @@
-# app/api/websocket.py - FIX DETECTION AND LATENCY
+# app/api/websocket.py - FIXED VERSION
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,11 +116,13 @@ class WebSocketHandler:
   """Handle WebSocket frame processing"""
 
   @staticmethod
-  async def process_frame(camera_id: str, image: np.ndarray, db: AsyncSession):
-    """Process a single frame with detection and tracking"""
-    camera = await camera_service.get_camera(db, camera_id)
-    if not camera:
-      return {"error": f"Camera {camera_id} not found"}
+  async def process_frame(camera, image: np.ndarray):
+    """
+    Process a single frame with detection and tracking
+    FIXED: Pass camera object instead of querying DB each time
+    FIXED: Handle detections properly (they're already Detection objects)
+    """
+    camera_id = camera.id
 
     if not stream_manager.is_active(camera_id):
       stream_manager.add_stream(camera)
@@ -133,7 +135,6 @@ class WebSocketHandler:
     if camera.features.get("detection", True):
       if not camera.active_models or len(camera.active_models) == 0:
         logger.warning(f"⚠️ Camera {camera_id} has detection enabled but no active models!")
-        logger.info(f"💡 Configure models via: PATCH /cameras/{camera_id}")
       else:
         logger.debug(f"🔍 Running detection with models: {camera.active_models}")
 
@@ -167,13 +168,15 @@ class WebSocketHandler:
 
           logger.debug(f"🤖 Running model: {model_name} with filter: {class_filter}")
           model_result = detector.detect(image, model_name, class_filter)
+
+          # FIX: Convert to dict properly
           results[model_name] = model_result.dict()
 
           logger.debug(f"✅ {model_name}: {model_result.count} detections")
 
-          for det_dict in model_result.detections:
-            det = Detection(**det_dict)
-            detected_objects.append(det)
+          # FIX: model_result.detections are already Detection objects
+          # Don't try to convert them again
+          detected_objects.extend(model_result.detections)
 
         except Exception as e:
           logger.error(f"❌ Error running model {model_name}: {e}", exc_info=True)
@@ -261,9 +264,10 @@ class WebSocketHandler:
 
 @router.websocket("/ws/camera/{camera_id}")
 async def camera_websocket(websocket: WebSocket, camera_id: str):
-  """WebSocket endpoint for individual camera streams with REDUCED LATENCY"""
+  """WebSocket endpoint for individual camera streams - OPTIMIZED"""
   await manager.connect(websocket, camera_id)
 
+  # FIX: Get camera ONCE at the start, not for every frame
   async for db in get_db():
     try:
       camera = await camera_service.get_camera(db, camera_id)
@@ -286,11 +290,84 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
         await websocket.send_json({
           "camera_id": camera_id,
           "status": "connected",
-          "message": "Webcam mode - send frames from client",
+          "message": "Webcam mode - ready to receive frames",
           "fps": target_fps
         })
-        # In webcam mode, wait for client to send frames
-        # (handled by legacy endpoint)
+
+        # Webcam mode: wait for client to send frames
+        logger.info(f"📹 Webcam mode enabled for camera {camera_id}")
+
+        frame_count = 0
+        last_frame_time = 0
+
+        while True:
+          try:
+            # Receive binary frame from client
+            data = await websocket.receive_bytes()
+
+            current_time = time.time()
+            time_since_last_frame = current_time - last_frame_time
+
+            # Rate limiting
+            if time_since_last_frame < frame_delay:
+              continue
+
+            # Parse binary data
+            offset = 0
+            camera_id_len = data[offset]
+            offset += 1
+            received_camera_id = data[offset:offset + camera_id_len].decode('utf-8')
+            offset += camera_id_len
+
+            # Verify camera ID matches
+            if received_camera_id != camera_id:
+              logger.warning(f"Camera ID mismatch: expected {camera_id}, got {received_camera_id}")
+              continue
+
+            timestamp = int.from_bytes(data[offset:offset + 4], 'little')
+            offset += 4
+
+            # Extract image data
+            image_data = data[offset:]
+            image_io = BytesIO(image_data)
+            pil_image = Image.open(image_io)
+
+            if pil_image.mode != 'RGB':
+              pil_image = pil_image.convert('RGB')
+
+            image_array = np.array(pil_image)
+
+            frame_count += 1
+            last_frame_time = time.time()
+
+            # FIX: Pass camera object instead of doing DB query
+            result = await WebSocketHandler.process_frame(camera, image_array)
+
+            # Encode frame back to client
+            _, buffer = cv2.imencode('.jpg', image_array, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            frame_base64 = base64.b64encode(buffer).decode('utf-8')
+            result['frame'] = frame_base64
+
+            # Send response
+            await websocket.send_json(result)
+
+            if frame_count % 30 == 0:
+              logger.info(f"📊 Processed {frame_count} webcam frames for camera {camera_id}")
+              if result.get('results'):
+                total_detections = sum(
+                  r.get('count', 0) for r in result['results'].values()
+                  if isinstance(r, dict) and 'count' in r
+                )
+                logger.info(f"   Total detections: {total_detections}")
+
+          except WebSocketDisconnect:
+            logger.info(f"🔴 Webcam WebSocket disconnected for camera {camera_id}")
+            break
+          except Exception as e:
+            logger.error(f"❌ Error processing webcam frame for {camera_id}: {e}", exc_info=True)
+            await asyncio.sleep(0.1)
+            continue
+
         break
 
       # Handle RTSP stream
@@ -314,7 +391,7 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
         frame_count = 0
 
         # OPTIMIZATION: Skip frames to reduce latency
-        frame_skip = max(1, int(30 / target_fps))  # If 30fps source, skip frames
+        frame_skip = max(1, int(30 / target_fps))
 
         while rtsp_manager.is_running(camera_id):
           current_time = time.time()
@@ -322,12 +399,12 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
 
           # Rate limiting
           if time_since_last_frame < frame_delay:
-            await asyncio.sleep(0.01)  # Small sleep to prevent CPU spinning
+            await asyncio.sleep(0.01)
             continue
 
           # OPTIMIZATION: Skip intermediate frames
           for _ in range(frame_skip - 1):
-            rtsp_manager.get_frame(camera_id)  # Discard
+            rtsp_manager.get_frame(camera_id)
 
           frame = rtsp_manager.get_frame(camera_id)
 
@@ -344,8 +421,8 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
             new_width = int(frame.shape[1] * scale)
             frame = cv2.resize(frame, (new_width, 720))
 
-          # Process frame
-          result = await WebSocketHandler.process_frame(camera_id, frame, db)
+          # FIX: Pass camera object instead of doing DB query
+          result = await WebSocketHandler.process_frame(camera, frame)
 
           # OPTIMIZATION: Reduce JPEG quality for faster encoding
           _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
@@ -381,9 +458,9 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
 
 @router.websocket("/ws")
 async def legacy_websocket(websocket: WebSocket):
-  """Legacy WebSocket endpoint (webcam mode)"""
+  """Legacy WebSocket endpoint (not recommended - use /ws/camera/{id})"""
   await websocket.accept()
-  logger.info("🔌 Legacy WebSocket connected (webcam mode)")
+  logger.info("🔌 Legacy WebSocket connected")
 
   async for db in get_db():
     try:
@@ -408,12 +485,18 @@ async def legacy_websocket(websocket: WebSocket):
 
         image_array = np.array(pil_image)
 
-        result = await WebSocketHandler.process_frame(camera_id, image_array, db)
+        # Get camera from DB
+        camera = await camera_service.get_camera(db, camera_id)
+        if not camera:
+          await websocket.send_json({"error": f"Camera {camera_id} not found"})
+          continue
+
+        result = await WebSocketHandler.process_frame(camera, image_array)
         await websocket.send_json(result)
 
     except WebSocketDisconnect:
       logger.info("🔴 Legacy WebSocket disconnected")
       break
     except Exception as e:
-      logger.error(f"❌ Legacy WebSocket error: {e}")
+      logger.error(f"❌ Legacy WebSocket error: {e}", exc_info=True)
       break
