@@ -1,4 +1,4 @@
-# app/services/camera_service.py - COMPLETE REPLACEMENT
+# app/services/camera_service.py - FIXED VERSION WITH DEBUG LOGGING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -78,15 +78,14 @@ class CameraService:
     camera = Camera(
       name=camera_data.name,
       location=camera_data.location,
-      rtsp_url=camera_data.rtsp_url,  # Make sure this is saved
+      rtsp_url=camera_data.rtsp_url,
       width=camera_data.width,
       height=camera_data.height,
       fps=camera_data.fps,
       features=camera_data.features or {},
-      active_models=camera_data.active_models or []  # Make sure this is saved
+      active_models=camera_data.active_models or []
     )
 
-    # Log what we're saving
     logger.info(f"Creating camera with RTSP URL: {camera.rtsp_url}")
     logger.info(f"Creating camera with active models: {camera.active_models}")
 
@@ -137,20 +136,68 @@ class CameraService:
     camera_id: str,
     camera_data: CameraUpdate
   ) -> Optional[Camera]:
-    """Update camera"""
+    """Update camera - FIXED with extensive logging"""
+    logger.info(f"=" * 80)
+    logger.info(f"🔄 UPDATE CAMERA REQUEST RECEIVED")
+    logger.info(f"Camera ID: {camera_id}")
+    logger.info(f"Raw update data: {camera_data}")
+
+    # Get current camera state
     camera = await CameraService.get_camera(db, camera_id)
     if not camera:
+      logger.error(f"❌ Camera {camera_id} not found in database")
       return None
 
+    logger.info(f"📊 Current camera state:")
+    logger.info(f"   Name: {camera.name}")
+    logger.info(f"   Location: {camera.location}")
+    logger.info(f"   Active Models: {camera.active_models}")
+    logger.info(f"   Features: {camera.features}")
+
+    # Get only fields that are being updated
     update_data = camera_data.dict(exclude_unset=True)
+    logger.info(f"📝 Fields to update: {list(update_data.keys())}")
+    logger.info(f"📝 Update values: {update_data}")
+
+    # CRITICAL: If active_models is not in the update data, preserve it
+    if 'active_models' not in update_data:
+      logger.info(f"✅ Preserving active_models: {camera.active_models}")
+    else:
+      logger.info(f"🔄 Updating active_models from {camera.active_models} to {update_data['active_models']}")
+
+    # Apply updates one by one with logging
     for key, value in update_data.items():
-      setattr(camera, key, value)
+      if hasattr(camera, key):
+        old_value = getattr(camera, key)
+        setattr(camera, key, value)
+        logger.info(f"   ✓ Updated {key}: {old_value} → {value}")
+      else:
+        logger.warning(f"   ⚠️ Field {key} does not exist on Camera model")
 
-    await db.commit()
-    await db.refresh(camera)
+    try:
+      # CRITICAL FIX: Flush changes before commit
+      await db.flush()
+      await db.commit()
+      await db.refresh(camera)
 
-    logger.info(f"✅ Updated camera: {camera_id}")
-    return camera
+      logger.info(f"✅ Camera {camera_id} updated successfully in database")
+      logger.info(f"📊 New camera state:")
+      logger.info(f"   Name: {camera.name}")
+      logger.info(f"   Location: {camera.location}")
+      logger.info(f"   Active Models: {camera.active_models}")
+      logger.info(f"   Features: {camera.features}")
+      logger.info(f"=" * 80)
+
+      return camera
+
+    except Exception as e:
+      logger.error(f"❌ COMMIT FAILED: {e}")
+      logger.error(f"Exception type: {type(e)}")
+      logger.error(f"Exception details: {str(e)}")
+      await db.rollback()
+      logger.info(f"🔄 Changes rolled back")
+      logger.info(f"=" * 80)
+      raise
 
   @staticmethod
   async def update_features(
@@ -158,21 +205,41 @@ class CameraService:
     camera_id: str,
     features: FeatureConfiguration
   ) -> Optional[Camera]:
-    """Update camera feature configuration"""
+    """Update camera feature configuration - FIXED with logging"""
+    logger.info(f"=" * 80)
+    logger.info(f"🔄 UPDATE FEATURES REQUEST RECEIVED")
+    logger.info(f"Camera ID: {camera_id}")
+
     camera = await CameraService.get_camera(db, camera_id)
     if not camera:
+      logger.error(f"❌ Camera {camera_id} not found")
       return None
 
+    logger.info(f"📊 Current features: {camera.features}")
+
     feature_dict = features.dict(exclude_unset=True)
+    logger.info(f"📝 Feature updates: {feature_dict}")
+
     current_features = camera.features or {}
     current_features.update(feature_dict)
     camera.features = current_features
 
-    await db.commit()
-    await db.refresh(camera)
+    logger.info(f"📊 New features: {camera.features}")
 
-    logger.info(f"✅ Updated features for camera: {camera_id}")
-    return camera
+    try:
+      await db.flush()
+      await db.commit()
+      await db.refresh(camera)
+
+      logger.info(f"✅ Features updated successfully for camera {camera_id}")
+      logger.info(f"=" * 80)
+      return camera
+
+    except Exception as e:
+      logger.error(f"❌ FEATURE UPDATE FAILED: {e}")
+      await db.rollback()
+      logger.info(f"=" * 80)
+      raise
 
   @staticmethod
   async def delete_camera(db: AsyncSession, camera_id: str) -> bool:

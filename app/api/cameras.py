@@ -10,114 +10,191 @@ from app.schemas.camera import (
 )
 from app.services.camera_service import camera_service
 from app.config import settings
+import asyncio
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
 
 @router.post("/", response_model=CameraResponse, status_code=status.HTTP_201_CREATED)
 async def create_camera(
-    camera_data: CameraCreate,
-    db: AsyncSession = Depends(get_db)
+  camera_data: CameraCreate,
+  db: AsyncSession = Depends(get_db)
 ):
-    """Create a new camera"""
-    print(camera_data)
-    camera = await camera_service.create_camera(db, camera_data)
-    return camera
+  """Create a new camera"""
+  print(camera_data)
+  camera = await camera_service.create_camera(db, camera_data)
+  return camera
 
 
 @router.get("/", response_model=List[CameraResponse])
 async def list_cameras(
-    active_only: bool = False,
-    db: AsyncSession = Depends(get_db)
+  active_only: bool = False,
+  db: AsyncSession = Depends(get_db)
 ):
-    """List all cameras"""
-    cameras = await camera_service.get_all_cameras(db, active_only)
-    return cameras
+  """List all cameras"""
+  cameras = await camera_service.get_all_cameras(db, active_only)
+  return cameras
 
 
 @router.get("/{camera_id}", response_model=CameraResponse)
 async def get_camera(
-    camera_id: str,
-    db: AsyncSession = Depends(get_db)
+  camera_id: str,
+  db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific camera"""
-    camera = await camera_service.get_camera(db, camera_id)
-    if not camera:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Camera {camera_id} not found"
-        )
-    return camera
+  """Get a specific camera"""
+  camera = await camera_service.get_camera(db, camera_id)
+  if not camera:
+    raise HTTPException(
+      status_code=status.HTTP_404_NOT_FOUND,
+      detail=f"Camera {camera_id} not found"
+    )
+  return camera
 
 
 @router.patch("/{camera_id}", response_model=CameraResponse)
 async def update_camera(
-    camera_id: str,
-    camera_data: CameraUpdate,
-    db: AsyncSession = Depends(get_db)
+  camera_id: str,
+  camera_data: CameraUpdate,
+  db: AsyncSession = Depends(get_db)
 ):
-    """Update a camera"""
-    camera = await camera_service.update_camera(db, camera_id, camera_data)
-    if not camera:
+  """Update a camera - FIXED with retry logic for concurrent access"""
+  import logging
+  logger = logging.getLogger(__name__)
+
+  logger.info(f"📝 Received update request for camera {camera_id}")
+  logger.info(f"📝 Update data: {camera_data.dict(exclude_unset=True)}")
+
+  # CRITICAL FIX: Add retry logic for database locks
+  max_retries = 3
+  retry_delay = 0.5
+
+  for attempt in range(max_retries):
+    try:
+      camera = await camera_service.update_camera(db, camera_id, camera_data)
+      if not camera:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Camera {camera_id} not found"
+          status_code=status.HTTP_404_NOT_FOUND,
+          detail=f"Camera {camera_id} not found"
         )
-    return camera
+      logger.info(f"✅ Camera {camera_id} updated successfully on attempt {attempt + 1}")
+      return camera
+
+    except Exception as e:
+      error_msg = str(e).lower()
+
+      # Check if it's a database lock error
+      if 'locked' in error_msg or 'busy' in error_msg:
+        if attempt < max_retries - 1:
+          logger.warning(f"⚠️ Database locked, retrying... (attempt {attempt + 1}/{max_retries})")
+          await asyncio.sleep(retry_delay)
+          retry_delay *= 2  # Exponential backoff
+          continue
+        else:
+          logger.error(f"❌ Database locked after {max_retries} attempts")
+          raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database is busy. Please try again."
+          )
+      else:
+        # Other error, don't retry
+        logger.error(f"❌ Update error: {e}")
+        raise HTTPException(
+          status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+          detail=str(e)
+        )
+
+  # Should never reach here
+  raise HTTPException(
+    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    detail="Update failed"
+  )
 
 
 @router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_camera(
-    camera_id: str,
-    db: AsyncSession = Depends(get_db)
+  camera_id: str,
+  db: AsyncSession = Depends(get_db)
 ):
-    """Delete a camera"""
-    success = await camera_service.delete_camera(db, camera_id)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Camera {camera_id} not found"
-        )
+  """Delete a camera"""
+  success = await camera_service.delete_camera(db, camera_id)
+  if not success:
+    raise HTTPException(
+      status_code=status.HTTP_404_NOT_FOUND,
+      detail=f"Camera {camera_id} not found"
+    )
 
 
 @router.post("/{camera_id}/calibrate", response_model=CameraResponse)
 async def calibrate_camera(
-    camera_id: str,
-    calibration_data: CameraCalibration,
-    db: AsyncSession = Depends(get_db)
+  camera_id: str,
+  calibration_data: CameraCalibration,
+  db: AsyncSession = Depends(get_db)
 ):
-    """Calibrate a camera for pixel-to-meter conversion"""
-    camera = await camera_service.calibrate_camera(db, camera_id, calibration_data)
-    if not camera:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Calibration failed"
-        )
-    return camera
+  """Calibrate a camera for pixel-to-meter conversion"""
+  camera = await camera_service.calibrate_camera(db, camera_id, calibration_data)
+  if not camera:
+    raise HTTPException(
+      status_code=status.HTTP_400_BAD_REQUEST,
+      detail="Calibration failed"
+    )
+  return camera
 
 
 @router.get("/{camera_id}/models")
 async def get_available_models(camera_id: str):
-    """Get available detection models"""
-    return {
-        "camera_id": camera_id,
-        "available_models": list(settings.AVAILABLE_MODELS.keys())
-    }
+  """Get available detection models"""
+  return {
+    "camera_id": camera_id,
+    "available_models": list(settings.AVAILABLE_MODELS.keys())
+  }
+
 
 @router.patch("/{camera_id}/features", response_model=CameraResponse)
 async def update_camera_features(
-    camera_id: str,
-    features: FeatureConfiguration,
-    db: AsyncSession = Depends(get_db)
+  camera_id: str,
+  features: FeatureConfiguration,
+  db: AsyncSession = Depends(get_db)
 ):
-    """Update camera feature configuration"""
-    camera = await camera_service.update_features(db, camera_id, features)
-    if not camera:
+  """Update camera feature configuration - FIXED with retry logic"""
+  import logging
+  logger = logging.getLogger(__name__)
+
+  logger.info(f"📝 Received feature update for camera {camera_id}")
+  logger.info(f"📝 Features: {features.dict(exclude_unset=True)}")
+
+  max_retries = 3
+  retry_delay = 0.5
+
+  for attempt in range(max_retries):
+    try:
+      camera = await camera_service.update_features(db, camera_id, features)
+      if not camera:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Camera {camera_id} not found"
+          status_code=status.HTTP_404_NOT_FOUND,
+          detail=f"Camera {camera_id} not found"
         )
-    return camera
+      logger.info(f"✅ Features updated successfully on attempt {attempt + 1}")
+      return camera
+
+    except Exception as e:
+      error_msg = str(e).lower()
+      if 'locked' in error_msg or 'busy' in error_msg:
+        if attempt < max_retries - 1:
+          logger.warning(f"⚠️ Database locked, retrying...")
+          await asyncio.sleep(retry_delay)
+          retry_delay *= 2
+          continue
+        else:
+          raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database is busy. Please try again."
+          )
+      else:
+        logger.error(f"❌ Feature update error: {e}")
+        raise HTTPException(
+          status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+          detail=str(e)
+        )
 
 
 class TestConnectionRequest(BaseModel):

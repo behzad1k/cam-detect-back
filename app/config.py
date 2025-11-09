@@ -22,7 +22,7 @@ class Settings(BaseSettings):
   VERSION: str = "2.0.0"
 
   # Database
-  DATABASE_URL: str = "sqlite+aiosqlite:///./seedeep.db"
+  DATABASE_URL: str = "mysql+aiomysql://root:behzaD!1@localhost:3306/seedeep"
 
   # CORS
   ALLOWED_ORIGINS: str = "*"
