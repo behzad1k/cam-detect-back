@@ -40,10 +40,10 @@ class CameraCreate(CameraBase):
       "class_filters": {},
       "tracking_classes": [],
       "speed_classes": [],
-      "distance_classes": []
+      "distance_classes": [],
+      "detection_classes": []  # NEW: Classes to detect
     }
   )
-
   # Models will be auto-detected from selected classes
   active_models: Optional[List[str]] = Field(default_factory=list)
 

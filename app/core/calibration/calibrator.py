@@ -8,17 +8,10 @@ logger = logging.getLogger(__name__)
 class CameraCalibrator:
   """Camera calibration for pixel-to-meter conversion"""
 
-  @staticmethod
   def calibrate_reference_object(points: List[Dict[str, float]]) -> Optional[float]:
     """
     Calibrate using reference object method
-
-    Args:
-        points: List of calibration points with pixel and real-world coordinates
-               [{"pixel_x": x, "pixel_y": y, "real_x": x, "real_y": y}]
-
-    Returns:
-        pixels_per_meter ratio or None if failed
+    Auto-detects if input is in centimeters and converts
     """
     if len(points) < 2:
       logger.error("Need at least 2 points for reference object calibration")
@@ -43,9 +36,20 @@ class CameraCalibrator:
         logger.error("Invalid calibration points (zero distance)")
         return None
 
-      pixels_per_meter = pixel_dist / real_dist
+      pixels_per_unit = pixel_dist / real_dist
 
-      logger.info(f"✅ Calibrated: {pixels_per_meter:.2f} pixels/meter")
+      # SMART DETECTION: If ratio is very small, input was likely in cm
+      # Typical pixels_per_meter: 50-500 (for normal camera views)
+      # If we get < 10, the input was probably in cm
+      if pixels_per_unit < 10:
+        logger.warning(f"⚠️ Detected centimeter input! Converting to meters...")
+        logger.warning(f"   Original ratio: {pixels_per_unit:.4f} (likely pixels/cm)")
+        pixels_per_meter = pixels_per_unit * 100  # Convert cm to m
+        logger.info(f"✅ Calibrated: {pixels_per_meter:.2f} pixels/meter")
+      else:
+        pixels_per_meter = pixels_per_unit
+        logger.info(f"✅ Calibrated: {pixels_per_meter:.2f} pixels/meter")
+
       return pixels_per_meter
 
     except Exception as e:

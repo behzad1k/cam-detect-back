@@ -242,3 +242,50 @@ async def test_camera_connection(request: TestConnectionRequest):
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
       detail=f"Connection test failed: {str(e)}"
     )
+
+@router.patch("/{camera_id}/detection-classes", response_model=CameraResponse)
+async def update_detection_classes(
+  camera_id: str,
+  classes: List[str],
+  db: AsyncSession = Depends(get_db)
+):
+  """Update detection classes for a camera"""
+  import logging
+  logger = logging.getLogger(__name__)
+
+  logger.info(f"📝 Received detection class update for camera {camera_id}")
+  logger.info(f"📝 Classes: {classes}")
+
+  max_retries = 3
+  retry_delay = 0.5
+
+  for attempt in range(max_retries):
+    try:
+      camera = await camera_service.update_detection_classes(db, camera_id, classes)
+      if not camera:
+        raise HTTPException(
+          status_code=status.HTTP_404_NOT_FOUND,
+          detail=f"Camera {camera_id} not found"
+        )
+      logger.info(f"✅ Detection classes updated successfully")
+      return camera
+
+    except Exception as e:
+      error_msg = str(e).lower()
+      if 'locked' in error_msg or 'busy' in error_msg:
+        if attempt < max_retries - 1:
+          logger.warning(f"⚠️ Database locked, retrying...")
+          await asyncio.sleep(retry_delay)
+          retry_delay *= 2
+          continue
+        else:
+          raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database is busy. Please try again."
+          )
+      else:
+        logger.error(f"❌ Detection class update error: {e}")
+        raise HTTPException(
+          status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+          detail=str(e)
+        )

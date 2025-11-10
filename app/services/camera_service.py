@@ -255,6 +255,42 @@ class CameraService:
     return True
 
   @staticmethod
+  async def update_detection_classes(
+    db: AsyncSession,
+    camera_id: str,
+    detection_classes: List[str]
+  ) -> Optional[Camera]:
+    """Update detection classes for a camera"""
+    logger.info(f"Updating detection classes for camera {camera_id}")
+
+    camera = await CameraService.get_camera(db, camera_id)
+    if not camera:
+      logger.error(f"Camera {camera_id} not found")
+      return None
+
+    current_features = camera.features or {}
+    current_features["detection_classes"] = detection_classes
+
+    # Auto-detect models from classes
+    camera.active_models = CameraService._detect_models_from_classes(detection_classes)
+    camera.features = current_features
+
+    try:
+      await db.flush()
+      await db.commit()
+      await db.refresh(camera)
+
+      logger.info(f"✅ Updated detection classes for camera {camera_id}")
+      logger.info(f"   Classes: {detection_classes}")
+      logger.info(f"   Active models: {camera.active_models}")
+      return camera
+
+    except Exception as e:
+      logger.error(f"❌ Detection class update failed: {e}")
+      await db.rollback()
+      raise
+
+  @staticmethod
   async def calibrate_camera(
     db: AsyncSession,
     camera_id: str,

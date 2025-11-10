@@ -76,11 +76,13 @@ class ObjectTracker:
 
   def update(self, detections: List[Detection]) -> Dict[str, TrackedObject]:
     """Update tracker with new detections"""
+
     # Mark all as disappeared if no detections
     if not detections:
       for track_id in list(self.disappeared.keys()):
         self.disappeared[track_id] += 1
         self.objects[track_id].time_since_update += 1
+        self.objects[track_id].age += 1  # FIX: Increment age
 
         if self.disappeared[track_id] > self.max_disappeared:
           self.deregister(track_id)
@@ -147,6 +149,7 @@ class ObjectTracker:
       self.objects[track_id].last_seen = time.time()
       self.objects[track_id].trajectory.append(new_centroid)
       self.objects[track_id].distance_traveled += distance
+      self.objects[track_id].age += 1  # FIX: Increment age on update
 
       # Update Kalman filter
       kf = self.kalman_filters[track_id]
@@ -164,6 +167,7 @@ class ObjectTracker:
       track_id = object_ids[row]
       self.disappeared[track_id] += 1
       self.objects[track_id].time_since_update += 1
+      self.objects[track_id].age += 1  # FIX: Increment age when disappeared
 
       if self.disappeared[track_id] > self.max_disappeared:
         self.deregister(track_id)

@@ -9,6 +9,7 @@ from app.database.models import Camera
 logger = logging.getLogger(__name__)
 
 
+
 class CameraStream:
   """Represents an active camera stream with its processing pipeline"""
 
@@ -26,10 +27,15 @@ class CameraStream:
     self.camera.features = features
 
     # Initialize or remove tracker based on features
+    # CRITICAL: Don't recreate if it already exists!
     if features.get("tracking", False) and not self.tracker:
       self.tracker = ObjectTracker()
-    elif not features.get("tracking", False):
+      logger.info(f"📹 Created tracker for camera {self.camera.id}")
+    elif not features.get("tracking", False) and self.tracker:
       self.tracker = None
+      logger.info(f"📹 Removed tracker for camera {self.camera.id}")
+
+
 
 
 class StreamManager:
