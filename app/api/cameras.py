@@ -289,3 +289,155 @@ async def update_detection_classes(
           status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
           detail=str(e)
         )
+
+
+@router.get("/{camera_id}/calibration")
+async def get_calibration_info(
+  camera_id: str,
+  db: AsyncSession = Depends(get_db)
+):
+  """Get current calibration information"""
+  camera = await camera_service.get_camera(db, camera_id)
+  if not camera:
+    raise HTTPException(
+      status_code=status.HTTP_404_NOT_FOUND,
+      detail=f"Camera {camera_id} not found"
+    )
+
+  return {
+    "is_calibrated": camera.is_calibrated,
+    "pixels_per_meter": camera.pixels_per_meter,
+    "calibration_mode": camera.calibration_mode,
+    "calibration_points": camera.calibration_points,
+    "width": camera.width,
+    "height": camera.height,
+    "camera_id": camera.id,
+    "name": camera.name
+  }
+
+
+@router.delete("/{camera_id}/calibration")
+async def clear_calibration(
+  camera_id: str,
+  db: AsyncSession = Depends(get_db)
+):
+  """Clear camera calibration"""
+  camera = await camera_service.get_camera(db, camera_id)
+  if not camera:
+    raise HTTPException(
+      status_code=status.HTTP_404_NOT_FOUND,
+      detail=f"Camera {camera_id} not found"
+    )
+
+  camera.is_calibrated = False
+  camera.pixels_per_meter = None
+  camera.calibration_mode = None
+  camera.calibration_points = None
+
+  await db.commit()
+  await db.refresh(camera)
+
+  return {
+    "success": True,
+    "message": "Calibration cleared successfully"
+  }
+
+
+@router.post("/{camera_id}/calibration/test")
+async def test_calibration(
+  camera_id: str,
+  calibration_data: CameraCalibration,
+  db: AsyncSession = Depends(get_db)
+):
+  """Test calibration without saving (preview mode)"""
+  from app.core.calibration.calibrator import calibrator
+
+  camera = await camera_service.get_camera(db, camera_id)
+  if not camera:
+    raise HTTPException(
+      status_code=status.HTTP_404_NOT_FOUND,
+      detail=f"Camera {camera_id} not found"
+    )
+
+  pixels_per_meter = None
+
+  if calibration_data.mode == "reference_object":
+    pixels_per_meter = calibrator.calibrate_reference_object(
+      [p.dict() for p in calibration_data.points]
+    )
+
+  if pixels_per_meter:
+    return {
+      "success": True,
+      "pixels_per_meter": pixels_per_meter,
+      "mode": calibration_data.mode,
+      "points_count": len(calibration_data.points)
+    }
+  else:
+    return {
+      "success": False,
+      "error": "Calibration test failed"
+    }
+
+
+@router.get("/{camera_id}/frame")
+async def get_camera_frame(
+  camera_id: str,
+  db: AsyncSession = Depends(get_db)
+):
+  """Get a single frame from camera for calibration"""
+  camera = await camera_service.get_camera(db, camera_id)
+  if not camera:
+    raise HTTPException(
+      status_code=status.HTTP_404_NOT_FOUND,
+      detail=f"Camera {camera_id} not found"
+    )
+
+  if not camera.rtsp_url:
+    raise HTTPException(
+      status_code=status.HTTP_400_BAD_REQUEST,
+      detail="Camera has no RTSP URL configured"
+    )
+
+  try:
+    cap = cv2.VideoCapture(camera.rtsp_url)
+
+    if not cap.isOpened():
+      raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Failed to connect to camera"
+      )
+
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret:
+      raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Failed to read frame from camera"
+      )
+
+    # Resize if needed
+    max_width = 1920
+    if frame.shape[1] > max_width:
+      scale = max_width / frame.shape[1]
+      new_width = int(frame.shape[1] * scale)
+      new_height = int(frame.shape[0] * scale)
+      frame = cv2.resize(frame, (new_width, new_height))
+
+    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    frame_base64 = base64.b64encode(buffer).decode('utf-8')
+
+    return {
+      "success": True,
+      "frame": frame_base64,
+      "width": frame.shape[1],
+      "height": frame.shape[0],
+      "camera_id": camera_id
+    }
+
+  except Exception as e:
+    raise HTTPException(
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+      detail=f"Failed to capture frame: {str(e)}"
+    )

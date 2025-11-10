@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 class CameraCalibrator:
   """Camera calibration for pixel-to-meter conversion"""
 
+  @staticmethod
   def calibrate_reference_object(points: List[Dict[str, float]]) -> Optional[float]:
     """
     Calibrate using reference object method
