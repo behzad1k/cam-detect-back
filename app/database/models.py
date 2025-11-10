@@ -7,10 +7,10 @@ import uuid
 class Camera(Base):
   __tablename__ = "cameras"
 
-  id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-  name = Column(String, nullable=False)
-  location = Column(String, nullable=True)
-  rtsp_url = Column(String, nullable=True)
+  id = Column(String(64), primary_key=True, default=lambda: str(uuid.uuid4()))
+  name = Column(String(64), nullable=False)
+  location = Column(String(64), nullable=True)
+  rtsp_url = Column(String(255), nullable=True)
 
   # Resolution
   width = Column(Integer, default=640)
@@ -20,7 +20,7 @@ class Camera(Base):
   # Calibration
   is_calibrated = Column(Boolean, default=False)
   pixels_per_meter = Column(Float, nullable=True)
-  calibration_mode = Column(String, nullable=True)  # reference_object, perspective_transform
+  calibration_mode = Column(String(64), nullable=True)  # reference_object, perspective_transform
   calibration_points = Column(JSON, nullable=True)
 
   # Features enabled
