@@ -1,4 +1,4 @@
-# app/api/websocket.py - FIXED VERSION
+# app/api/websocket.py - UPDATED VERSION WITH HTTP AND RTSP SUPPORT
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,31 +30,36 @@ logger = logging.getLogger(__name__)
 thread_pool = ThreadPoolExecutor(max_workers=4)
 
 
-class RTSPStreamManager:
-  """Manage RTSP streams for cameras"""
+class StreamManager:
+  """Manage RTSP and HTTP streams for cameras"""
 
   def __init__(self):
     self.streams: Dict[str, cv2.VideoCapture] = {}
     self.running: Dict[str, bool] = {}
+    self.stream_types: Dict[str, str] = {}  # Track if stream is 'rtsp' or 'http'
 
-  def start_stream(self, camera_id: str, rtsp_url: str) -> bool:
-    """Start streaming from RTSP URL"""
+  def start_stream(self, camera_id: str, stream_url: str) -> bool:
+    """Start streaming from RTSP or HTTP URL"""
     if camera_id in self.streams:
       self.stop_stream(camera_id)
 
-    logger.info(f"Opening RTSP stream: {rtsp_url}")
-    cap = cv2.VideoCapture(rtsp_url)
+    # Determine stream type
+    stream_type = "http" if stream_url.startswith("http://") or stream_url.startswith("https://") else "rtsp"
+
+    logger.info(f"Opening {stream_type.upper()} stream: {stream_url}")
+    cap = cv2.VideoCapture(stream_url)
 
     # OPTIMIZATION: Set buffer size to 1 for low latency
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     if not cap.isOpened():
-      logger.error(f"Failed to open RTSP stream: {rtsp_url}")
+      logger.error(f"Failed to open {stream_type.upper()} stream: {stream_url}")
       return False
 
     self.streams[camera_id] = cap
     self.running[camera_id] = True
-    logger.info(f"✅ Started RTSP stream for camera {camera_id}")
+    self.stream_types[camera_id] = stream_type
+    logger.info(f"✅ Started {stream_type.upper()} stream for camera {camera_id}")
     return True
 
   def stop_stream(self, camera_id: str):
@@ -63,7 +68,12 @@ class RTSPStreamManager:
     if camera_id in self.streams:
       self.streams[camera_id].release()
       del self.streams[camera_id]
-      logger.info(f"🔴 Stopped RTSP stream for camera {camera_id}")
+
+      stream_type = self.stream_types.get(camera_id, "stream")
+      logger.info(f"🔴 Stopped {stream_type.upper()} stream for camera {camera_id}")
+
+      if camera_id in self.stream_types:
+        del self.stream_types[camera_id]
 
   def get_frame(self, camera_id: str) -> Optional[np.ndarray]:
     """Get a frame from the stream"""
@@ -83,8 +93,12 @@ class RTSPStreamManager:
     """Check if stream is running"""
     return self.running.get(camera_id, False)
 
+  def get_stream_type(self, camera_id: str) -> Optional[str]:
+    """Get the type of stream (rtsp or http)"""
+    return self.stream_types.get(camera_id)
 
-rtsp_manager = RTSPStreamManager()
+
+stream_manager_ws = StreamManager()
 
 
 def calculate_distance_from_camera(centroid, pixels_per_meter, camera_width, camera_height):
@@ -101,6 +115,8 @@ def calculate_distance_from_camera(centroid, pixels_per_meter, camera_width, cam
     "distance_from_camera_m": distance,
     "distance_from_camera_ft": distance * 3.28084
   }
+
+
 class ConnectionManager:
   """Manage WebSocket connections per camera"""
 
@@ -346,9 +362,10 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
       "error": str(e)
     }
 
+
 @router.websocket("/ws/camera/{camera_id}")
 async def camera_websocket(websocket: WebSocket, camera_id: str):
-  """WebSocket endpoint for individual camera streams - OPTIMIZED WITH FPS LIMITER"""
+  """WebSocket endpoint for individual camera streams - SUPPORTS BOTH HTTP AND RTSP"""
   await manager.connect(websocket, camera_id)
 
   # FIX: Get camera ONCE at the start, not for every frame
@@ -368,31 +385,36 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
 
       logger.info(f"🎥 Target FPS: {target_fps}")
 
-      # Handle RTSP stream
+      # Handle RTSP or HTTP stream
       if camera.rtsp_url:
-        logger.info(f"🎥 Starting RTSP stream for {camera_id}: {camera.rtsp_url}")
+        # Determine stream type based on URL
+        stream_type = "HTTP" if camera.rtsp_url.startswith("http://") or camera.rtsp_url.startswith(
+          "https://") else "RTSP"
 
-        if not rtsp_manager.start_stream(camera_id, camera.rtsp_url):
+        logger.info(f"🎥 Starting {stream_type} stream for {camera_id}: {camera.rtsp_url}")
+
+        if not stream_manager_ws.start_stream(camera_id, camera.rtsp_url):
           await websocket.send_json({
             "camera_id": camera_id,
-            "error": f"Failed to open RTSP stream: {camera.rtsp_url}"
+            "error": f"Failed to open {stream_type} stream: {camera.rtsp_url}"
           })
           break
 
         await websocket.send_json({
           "camera_id": camera_id,
           "status": "connected",
-          "message": "RTSP stream started",
+          "message": f"{stream_type} stream started",
+          "stream_type": stream_type.lower(),
           "fps": target_fps
         })
 
         frame_count = 0
         processed_count = 0
 
-        while rtsp_manager.is_running(camera_id):
+        while stream_manager_ws.is_running(camera_id):
           try:
-            # Read frame from RTSP manager
-            frame = rtsp_manager.get_frame(camera_id)
+            # Read frame from stream manager
+            frame = stream_manager_ws.get_frame(camera_id)
 
             if frame is None:
               await asyncio.sleep(0.01)
@@ -421,13 +443,19 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
               continue
 
             # OPTIMIZATION: Reduce JPEG quality for faster encoding
-            try:
-              _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
-              frame_base64 = base64.b64encode(buffer).decode('utf-8')
-              result['frame'] = frame_base64
-            except Exception as e:
-              logger.error(f"❌ Error encoding frame: {e}")
-              continue
+            send_frames = True  # Set to True if frontend wants frames (legacy mode)
+
+            if send_frames:
+              try:
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 100])
+                frame_base64 = base64.b64encode(buffer).decode('utf-8')
+                result['frame'] = frame_base64
+              except Exception as e:
+                logger.error(f"❌ Error encoding frame: {e}")
+                continue
+            else:
+              # Don't send frame data - frontend gets video from HLS
+              result['frame'] = None
 
             # Send response
             try:
@@ -438,7 +466,8 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
 
             if processed_count % 30 == 0:
               actual_fps = fps_limiter.get_actual_fps()
-              logger.info(f"📊 RTSP camera {camera_id}:")
+              current_stream_type = stream_manager_ws.get_stream_type(camera_id)
+              logger.info(f"📊 {current_stream_type.upper()} camera {camera_id}:")
               logger.info(f"   Read: {frame_count} frames")
               logger.info(f"   Processed: {processed_count} frames")
               logger.info(f"   Target FPS: {target_fps}")
@@ -452,18 +481,18 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
                 logger.info(f"   Total detections: {total_detections}")
 
           except Exception as e:
-            logger.error(f"❌ Error in RTSP processing loop: {e}", exc_info=True)
+            logger.error(f"❌ Error in stream processing loop: {e}", exc_info=True)
             await asyncio.sleep(0.1)
             continue
 
     except WebSocketDisconnect:
-      rtsp_manager.stop_stream(camera_id)
+      stream_manager_ws.stop_stream(camera_id)
       manager.disconnect(websocket, camera_id)
       logger.info(f"🔴 WebSocket disconnected for camera {camera_id}")
       break
     except Exception as e:
       logger.error(f"❌ WebSocket error for camera {camera_id}: {e}", exc_info=True)
-      rtsp_manager.stop_stream(camera_id)
+      stream_manager_ws.stop_stream(camera_id)
       try:
         await websocket.send_json({"error": str(e)})
       except:

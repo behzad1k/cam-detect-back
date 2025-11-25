@@ -5,7 +5,7 @@ import logging
 from app.config import settings
 from app.database.base import init_db
 from app.utils.logger import setup_logging
-from app.api import cameras, websocket, health
+from app.api import cameras, websocket, health, http_camera_proxy
 from app.core.detection.yolo_detector import detector
 
 # Setup logging
@@ -33,7 +33,11 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(cameras.router, prefix=settings.API_V1_PREFIX)
 app.include_router(websocket.router)
-
+app.include_router(
+    http_camera_proxy.router,
+    prefix="/api/v1",
+    tags=["camera-proxy"]
+)
 
 @app.on_event("startup")
 async def startup_event():
