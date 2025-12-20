@@ -1,9 +1,7 @@
-# app/api/ptz_control.py - WITH BOTH CAMERA_ID AND DIRECT IP ENDPOINTS
+# app/api/ptz_control.py - UPDATED WITH NEW ONVIF HANDLER
 
 import logging
-import os
-import sys
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -11,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.base import get_db
 from app.services.camera_service import camera_service
+from app.services.onvif_handler import ONVIFConfig, ONVIFHandler, discover_camera
 
 logger = logging.getLogger(__name__)
 
@@ -18,51 +17,15 @@ router = APIRouter(tags=["PTZ Control"])
 
 
 # ============================================================================
-# WSDL PATH DETECTION
+# REQUEST MODELS
 # ============================================================================
 
 
-def get_wsdl_path():
-    """Robust WSDL path detection"""
-    try:
-        import onvif
-
-        onvif_dir = os.path.dirname(onvif.__file__)
-
-        for subdir in ["wsdl", "wsdl_files", "wsdls"]:
-            wsdl_path = os.path.join(onvif_dir, subdir)
-            if os.path.exists(wsdl_path):
-                devicemgmt = os.path.join(wsdl_path, "devicemgmt.wsdl")
-                if os.path.exists(devicemgmt):
-                    logger.info(f"✅ Found WSDL at: {wsdl_path}")
-                    return wsdl_path
-
-        # Search recursively
-        from pathlib import Path
-
-        site_packages = Path(sys.prefix) / "lib"
-        if site_packages.exists():
-            for wsdl_dir in site_packages.rglob("wsdl"):
-                devicemgmt = wsdl_dir / "devicemgmt.wsdl"
-                if devicemgmt.exists():
-                    return str(wsdl_dir)
-
-    except Exception as e:
-        logger.warning(f"WSDL detection error: {e}")
-
-    return None
-
-
-WSDL_PATH = get_wsdl_path()
-if WSDL_PATH:
-    logger.info(f"✅ WSDL Path: {WSDL_PATH}")
-else:
-    logger.error("❌ WSDL files not found")
-
-
-# ============================================================================
-# REQUEST MODELS (for camera_id endpoints)
-# ============================================================================
+class ONVIFDiscoverRequest(BaseModel):
+    ip: str
+    port: int = 80
+    username: str
+    password: str
 
 
 class PTZMoveRequest(BaseModel):
@@ -76,9 +39,156 @@ class PTZPresetRequest(BaseModel):
     preset_token: str
 
 
+class PTZSetPresetRequest(BaseModel):
+    preset_name: str
+    preset_token: Optional[str] = None
+
+
 # ============================================================================
 # DIRECT IP ENDPOINTS (Query Parameters)
 # ============================================================================
+
+
+@router.post("/ptz/discover")
+async def discover_camera_endpoint(
+    request: ONVIFDiscoverRequest, db: AsyncSession = Depends(get_db)
+):
+    """
+    Discover camera capabilities via ONVIF
+
+    Supports multiple authentication methods:
+    - SOAP with WS-Security
+    - HTTP Digest Auth
+    - HTTP Basic Auth
+
+    Automatically detects which method works.
+    """
+    try:
+        logger.info(f"🔍 ONVIF Discovery Request:")
+        logger.info(f"   IP: {request.ip}:{request.port}")
+        logger.info(f"   Username: {request.username}")
+        logger.info(f"   Password length: {len(request.password)} chars")
+
+        # Use new handler
+        capabilities = await discover_camera(
+            ip=request.ip,
+            port=request.port,
+            username=request.username,
+            password=request.password,
+        )
+
+        # Format response for frontend
+        result = {
+            "success": True,
+            "device": {
+                "manufacturer": capabilities.manufacturer,
+                "model": capabilities.model,
+                "firmware": capabilities.firmware,
+                "serial": capabilities.serial,
+                "hardware_id": capabilities.hardware_id,
+            },
+            "capabilities": {
+                "ptz": capabilities.capabilities.get("ptz", False),
+                "audio": capabilities.capabilities.get("audio", False),
+                "events": capabilities.capabilities.get("events", False),
+                "imaging": capabilities.capabilities.get("imaging", False),
+                "analytics": capabilities.capabilities.get("analytics", False),
+                "device_io": capabilities.capabilities.get("device_io", False),
+                "recording": capabilities.capabilities.get("recording", False),
+                "profiles": len(capabilities.profiles),
+            },
+            "streams": [
+                {
+                    "name": p["name"],
+                    "token": p["token"],
+                    "uri": p.get("uri", ""),
+                    "width": p["width"],
+                    "height": p["height"],
+                    "fps": p["fps"],
+                }
+                for p in capabilities.profiles
+            ],
+            "connection": {
+                "ip": request.ip,
+                "port": request.port,
+                "onvif_enabled": True,
+                "auth_method": capabilities.auth_method.value
+                if capabilities.auth_method
+                else "unknown",
+            },
+        }
+
+        logger.info("✅ ONVIF discovery completed successfully")
+        logger.info(f"   Manufacturer: {capabilities.manufacturer}")
+        logger.info(f"   Model: {capabilities.model}")
+        logger.info(
+            f"   Auth Method: {capabilities.auth_method.value if capabilities.auth_method else 'unknown'}"
+        )
+        logger.info(f"   Streams: {len(capabilities.profiles)}")
+        logger.info(
+            f"   PTZ: {'Yes' if capabilities.capabilities.get('ptz') else 'No'}"
+        )
+        logger.info(
+            f"   Events: {'Yes' if capabilities.capabilities.get('events') else 'No'}"
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ ONVIF discovery failed: {e}", exc_info=True)
+
+        error_str = str(e)
+
+        # Provide helpful error messages
+        if "All authentication methods failed" in error_str:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "Authentication Failed",
+                    "message": "All authentication methods failed. Invalid credentials or ONVIF not enabled.",
+                    "camera_ip": request.ip,
+                    "username_tried": request.username,
+                    "hints": [
+                        "Verify camera credentials are correct",
+                        "Check if ONVIF is enabled in camera settings",
+                        "For Dahua: Setup > Network > ONVIF must be enabled",
+                        "For Hikvision: Configuration > Network > Advanced Settings > Integration Protocol",
+                        "Ensure user has ONVIF permissions",
+                        "Try resetting camera ONVIF password",
+                    ],
+                },
+            )
+        elif "timeout" in error_str.lower() or "connection" in error_str.lower():
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Connection Failed",
+                    "message": "Cannot connect to camera",
+                    "camera_ip": request.ip,
+                    "port": request.port,
+                    "hints": [
+                        "Verify camera IP address is correct",
+                        "Check camera is powered on and connected to network",
+                        "Verify ONVIF port (usually 80, 8080, or 8000)",
+                        "Check firewall settings",
+                        "Try pinging the camera first",
+                    ],
+                },
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "ONVIF Discovery Failed",
+                    "message": str(e),
+                    "type": type(e).__name__,
+                    "hints": [
+                        "Verify camera supports ONVIF",
+                        "Check camera network settings",
+                        "Review camera documentation for ONVIF setup",
+                    ],
+                },
+            )
 
 
 @router.post("/ptz/move")
@@ -90,6 +200,7 @@ async def ptz_move_direct(
     y: float = Query(0.0, description="Tilt: -1.0 (down) to 1.0 (up)"),
     z: float = Query(0.0, description="Zoom: -1.0 (out) to 1.0 (in)"),
     port: int = Query(80, description="ONVIF port"),
+    timeout: int = Query(1, description="Movement timeout in seconds"),
 ):
     """
     Control PTZ camera movement using direct IP/credentials
@@ -98,42 +209,19 @@ async def ptz_move_direct(
     POST /api/v1/ptz/move?ip=192.168.1.12&username=admin&password=pass&x=0.5&y=0&z=0
     """
     try:
-        from onvif import ONVIFCamera
-
         logger.info(f"🔌 Direct PTZ move: {username}@{ip}:{port} (x={x}, y={y}, z={z})")
 
-        # Create ONVIF camera
-        cam = ONVIFCamera(ip, port, username, password, WSDL_PATH)
-
-        # Get PTZ service
-        ptz_service = cam.create_ptz_service()
-
-        # Get profile token
-        media_service = cam.create_media_service()
-        profiles = media_service.GetProfiles()
-
-        if not profiles:
-            raise HTTPException(status_code=404, detail="No media profiles found")
-
-        token = profiles[0].token
-
-        # Create move request
-        request = ptz_service.create_type("ContinuousMove")
-        request.ProfileToken = token
-
-        # Create velocity structure
-        velocity = ptz_service.create_type("PTZSpeed")
-        velocity.PanTilt = ptz_service.create_type("Vector2D")
-        velocity.PanTilt.x = x
-        velocity.PanTilt.y = y
-
-        velocity.Zoom = ptz_service.create_type("Vector1D")
-        velocity.Zoom.x = z
-
-        request.Velocity = velocity
+        # Create handler
+        config = ONVIFConfig(ip=ip, port=port, username=username, password=password)
+        handler = ONVIFHandler(config)
 
         # Execute move
-        ptz_service.ContinuousMove(request)
+        success = await handler.ptz_continuous_move(
+            pan=x, tilt=y, zoom=z, timeout=timeout
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="PTZ move command failed")
 
         logger.info(f"✅ PTZ moved successfully")
 
@@ -146,6 +234,8 @@ async def ptz_move_direct(
             "zoom": z,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ PTZ move failed: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
@@ -165,29 +255,22 @@ async def ptz_stop_direct(
     POST /api/v1/ptz/stop?ip=192.168.1.12&username=admin&password=pass
     """
     try:
-        from onvif import ONVIFCamera
-
         logger.info(f"🛑 Direct PTZ stop: {username}@{ip}:{port}")
 
-        cam = ONVIFCamera(ip, port, username, password, WSDL_PATH)
-        ptz_service = cam.create_ptz_service()
+        config = ONVIFConfig(ip=ip, port=port, username=username, password=password)
+        handler = ONVIFHandler(config)
 
-        media_service = cam.create_media_service()
-        profiles = media_service.GetProfiles()
-        token = profiles[0].token
+        success = await handler.ptz_stop()
 
-        # Stop request
-        request = ptz_service.create_type("Stop")
-        request.ProfileToken = token
-        request.PanTilt = True
-        request.Zoom = True
-
-        ptz_service.Stop(request)
+        if not success:
+            raise HTTPException(status_code=500, detail="PTZ stop command failed")
 
         logger.info(f"✅ PTZ stopped")
 
         return {"success": True, "message": "PTZ stopped", "ip": ip}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ PTZ stop failed: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
@@ -207,26 +290,10 @@ async def ptz_get_position_direct(
     GET /api/v1/ptz/position?ip=192.168.1.12&username=admin&password=pass
     """
     try:
-        from onvif import ONVIFCamera
+        config = ONVIFConfig(ip=ip, port=port, username=username, password=password)
+        handler = ONVIFHandler(config)
 
-        cam = ONVIFCamera(ip, port, username, password, WSDL_PATH)
-        ptz_service = cam.create_ptz_service()
-
-        media_service = cam.create_media_service()
-        profiles = media_service.GetProfiles()
-        token = profiles[0].token
-
-        # Get status
-        status = ptz_service.GetStatus({"ProfileToken": token})
-
-        position = {"pan": 0.0, "tilt": 0.0, "zoom": 0.0}
-
-        if status and status.Position:
-            if status.Position.PanTilt:
-                position["pan"] = status.Position.PanTilt.x
-                position["tilt"] = status.Position.PanTilt.y
-            if status.Position.Zoom:
-                position["zoom"] = status.Position.Zoom.x
+        position = await handler.ptz_get_status()
 
         return {"success": True, "ip": ip, "position": position}
 
@@ -249,27 +316,12 @@ async def ptz_list_presets_direct(
     GET /api/v1/ptz/presets?ip=192.168.1.12&username=admin&password=pass
     """
     try:
-        from onvif import ONVIFCamera
+        config = ONVIFConfig(ip=ip, port=port, username=username, password=password)
+        handler = ONVIFHandler(config)
 
-        cam = ONVIFCamera(ip, port, username, password, WSDL_PATH)
-        ptz_service = cam.create_ptz_service()
+        presets = await handler.ptz_get_presets()
 
-        media_service = cam.create_media_service()
-        profiles = media_service.GetProfiles()
-        token = profiles[0].token
-
-        presets = ptz_service.GetPresets({"ProfileToken": token})
-
-        preset_list = []
-        for preset in presets:
-            preset_list.append(
-                {
-                    "token": preset.token,
-                    "name": preset.Name if hasattr(preset, "Name") else preset.token,
-                }
-            )
-
-        return {"success": True, "ip": ip, "presets": preset_list}
+        return {"success": True, "ip": ip, "presets": presets}
 
     except Exception as e:
         logger.error(f"❌ List presets failed: {e}", exc_info=True)
@@ -291,16 +343,13 @@ async def ptz_goto_preset_direct(
     POST /api/v1/ptz/presets/goto?ip=192.168.1.12&username=admin&password=pass&preset_token=1
     """
     try:
-        from onvif import ONVIFCamera
+        config = ONVIFConfig(ip=ip, port=port, username=username, password=password)
+        handler = ONVIFHandler(config)
 
-        cam = ONVIFCamera(ip, port, username, password, WSDL_PATH)
-        ptz_service = cam.create_ptz_service()
+        success = await handler.ptz_goto_preset(preset_token)
 
-        media_service = cam.create_media_service()
-        profiles = media_service.GetProfiles()
-        token = profiles[0].token
-
-        ptz_service.GotoPreset({"ProfileToken": token, "PresetToken": preset_token})
+        if not success:
+            raise HTTPException(status_code=500, detail="Goto preset command failed")
 
         return {
             "success": True,
@@ -309,8 +358,88 @@ async def ptz_goto_preset_direct(
             "message": f"Moved to preset {preset_token}",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Goto preset failed: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/ptz/presets/set")
+async def ptz_set_preset_direct(
+    ip: str = Query(..., description="Camera IP address"),
+    username: str = Query(..., description="ONVIF username"),
+    password: str = Query(..., description="ONVIF password"),
+    preset_name: str = Query(..., description="Name for the new preset"),
+    preset_token: Optional[str] = Query(
+        None, description="Optional preset token to update"
+    ),
+    port: int = Query(80, description="ONVIF port"),
+):
+    """
+    Set/create a preset at current position
+
+    Example:
+    POST /api/v1/ptz/presets/set?ip=192.168.1.12&username=admin&password=pass&preset_name=MyPreset
+    """
+    try:
+        config = ONVIFConfig(ip=ip, port=port, username=username, password=password)
+        handler = ONVIFHandler(config)
+
+        token = await handler.ptz_set_preset(preset_name, preset_token)
+
+        if not token:
+            raise HTTPException(status_code=500, detail="Set preset command failed")
+
+        return {
+            "success": True,
+            "ip": ip,
+            "preset_name": preset_name,
+            "preset_token": token,
+            "message": f"Preset '{preset_name}' created/updated",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Set preset failed: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/ptz/presets")
+async def ptz_remove_preset_direct(
+    ip: str = Query(..., description="Camera IP address"),
+    username: str = Query(..., description="ONVIF username"),
+    password: str = Query(..., description="ONVIF password"),
+    preset_token: str = Query(..., description="Preset token to remove"),
+    port: int = Query(80, description="ONVIF port"),
+):
+    """
+    Remove a preset
+
+    Example:
+    DELETE /api/v1/ptz/presets?ip=192.168.1.12&username=admin&password=pass&preset_token=1
+    """
+    try:
+        config = ONVIFConfig(ip=ip, port=port, username=username, password=password)
+        handler = ONVIFHandler(config)
+
+        success = await handler.ptz_remove_preset(preset_token)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Remove preset command failed")
+
+        return {
+            "success": True,
+            "ip": ip,
+            "preset_token": preset_token,
+            "message": f"Preset {preset_token} removed",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Remove preset failed: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -319,41 +448,30 @@ async def ptz_goto_preset_direct(
 # ============================================================================
 
 
-async def get_onvif_camera(camera_id: str, db: AsyncSession):
-    """Build ONVIF camera from database fields"""
-    from onvif import ONVIFCamera
-
-    if WSDL_PATH is None:
-        raise HTTPException(status_code=500, detail="ONVIF WSDL files not found")
-
+async def get_onvif_handler(
+    camera_id: str, db: AsyncSession
+) -> tuple[ONVIFHandler, Any]:
+    """Build ONVIF handler from database camera (with caching)"""
     camera = await camera_service.get_camera(db, camera_id)
+
     if not camera:
         raise HTTPException(status_code=404, detail=f"Camera {camera_id} not found")
 
     ip_address = camera.ip_address
-    username = camera.username or "admin"
-    password = camera.password or ""
+    username = camera.username
+    password = camera.password
     onvif_port = camera.onvif_port or 80
 
     if not ip_address:
         raise HTTPException(status_code=400, detail="Camera IP not configured")
 
-    try:
-        onvif_cam = ONVIFCamera(ip_address, onvif_port, username, password, WSDL_PATH)
-        return onvif_cam, camera
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Connection failed: {str(e)}")
+    config = ONVIFConfig(
+        ip=ip_address, port=onvif_port, username=username, password=password
+    )
 
-
-async def get_ptz_service(camera_id: str, db: AsyncSession):
-    """Get PTZ service"""
-    onvif_cam, camera = await get_onvif_camera(camera_id, db)
-
-    try:
-        ptz_service = onvif_cam.create_ptz_service()
-        return ptz_service, onvif_cam, camera
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PTZ service failed: {str(e)}")
+    # Use cached instance
+    handler = ONVIFHandler.get_instance(config)
+    return handler, camera
 
 
 @router.post("/ptz/{camera_id}/move")
@@ -367,41 +485,22 @@ async def ptz_move_by_id(
     POST /api/v1/ptz/{camera_id}/move
     Body: {"pan": 0.3, "tilt": 0, "zoom": 0, "timeout": 2}
     """
-    ptz_service, onvif_cam, camera = await get_ptz_service(camera_id, db)
-
     try:
-        media_service = onvif_cam.create_media_service()
-        profiles = media_service.GetProfiles()
+        handler, camera = await get_onvif_handler(camera_id, db)
 
-        if not profiles:
-            raise HTTPException(status_code=404, detail="No media profiles found")
+        success = await handler.ptz_continuous_move(
+            pan=request.pan,
+            tilt=request.tilt,
+            zoom=request.zoom,
+            timeout=request.timeout,
+        )
 
-        profile_token = profiles[0].token
+        if not success:
+            raise HTTPException(status_code=500, detail="PTZ move command failed")
 
-        # Create move request
-        move_request = ptz_service.create_type("ContinuousMove")
-        move_request.ProfileToken = profile_token
-
-        # Create velocity
-        velocity = ptz_service.create_type("PTZSpeed")
-        velocity.PanTilt = ptz_service.create_type("Vector2D")
-        velocity.PanTilt.x = request.pan
-        velocity.PanTilt.y = request.tilt
-
-        velocity.Zoom = ptz_service.create_type("Vector1D")
-        velocity.Zoom.x = request.zoom
-
-        move_request.Velocity = velocity
-
-        # Set timeout
-        if request.timeout:
-            from datetime import timedelta
-
-            move_request.Timeout = timedelta(seconds=request.timeout)
-
-        ptz_service.ContinuousMove(move_request)
-
-        logger.info(f"✅ PTZ moved (camera_id): pan={request.pan}, tilt={request.tilt}")
+        logger.info(
+            f"✅ PTZ moved (camera_id={camera_id}): pan={request.pan}, tilt={request.tilt}"
+        )
 
         return {
             "success": True,
@@ -412,6 +511,8 @@ async def ptz_move_by_id(
             "zoom": request.zoom,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Move failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -425,22 +526,18 @@ async def ptz_stop_by_id(camera_id: str, db: AsyncSession = Depends(get_db)):
     Example:
     POST /api/v1/ptz/{camera_id}/stop
     """
-    ptz_service, onvif_cam, camera = await get_ptz_service(camera_id, db)
-
     try:
-        media_service = onvif_cam.create_media_service()
-        profiles = media_service.GetProfiles()
-        profile_token = profiles[0].token
+        handler, camera = await get_onvif_handler(camera_id, db)
 
-        stop_request = ptz_service.create_type("Stop")
-        stop_request.ProfileToken = profile_token
-        stop_request.PanTilt = True
-        stop_request.Zoom = True
+        success = await handler.ptz_stop()
 
-        ptz_service.Stop(stop_request)
+        if not success:
+            raise HTTPException(status_code=500, detail="PTZ stop command failed")
 
         return {"success": True, "camera_id": camera_id, "camera_name": camera.name}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -448,23 +545,10 @@ async def ptz_stop_by_id(camera_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/ptz/{camera_id}/position")
 async def ptz_get_position_by_id(camera_id: str, db: AsyncSession = Depends(get_db)):
     """Get PTZ position using camera_id"""
-    ptz_service, onvif_cam, camera = await get_ptz_service(camera_id, db)
-
     try:
-        media_service = onvif_cam.create_media_service()
-        profiles = media_service.GetProfiles()
-        profile_token = profiles[0].token
+        handler, camera = await get_onvif_handler(camera_id, db)
 
-        status = ptz_service.GetStatus({"ProfileToken": profile_token})
-
-        position = {"pan": 0.0, "tilt": 0.0, "zoom": 0.0}
-
-        if status and status.Position:
-            if status.Position.PanTilt:
-                position["pan"] = status.Position.PanTilt.x
-                position["tilt"] = status.Position.PanTilt.y
-            if status.Position.Zoom:
-                position["zoom"] = status.Position.Zoom.x
+        position = await handler.ptz_get_status()
 
         return {
             "success": True,
@@ -480,29 +564,16 @@ async def ptz_get_position_by_id(camera_id: str, db: AsyncSession = Depends(get_
 @router.get("/ptz/{camera_id}/presets")
 async def ptz_list_presets_by_id(camera_id: str, db: AsyncSession = Depends(get_db)):
     """List PTZ presets using camera_id"""
-    ptz_service, onvif_cam, camera = await get_ptz_service(camera_id, db)
-
     try:
-        media_service = onvif_cam.create_media_service()
-        profiles = media_service.GetProfiles()
-        profile_token = profiles[0].token
+        handler, camera = await get_onvif_handler(camera_id, db)
 
-        presets = ptz_service.GetPresets({"ProfileToken": profile_token})
-
-        preset_list = []
-        for preset in presets:
-            preset_list.append(
-                {
-                    "token": preset.token,
-                    "name": preset.Name if hasattr(preset, "Name") else preset.token,
-                }
-            )
+        presets = await handler.ptz_get_presets()
 
         return {
             "success": True,
             "camera_id": camera_id,
             "camera_name": camera.name,
-            "presets": preset_list,
+            "presets": presets,
         }
 
     except Exception as e:
@@ -514,16 +585,13 @@ async def ptz_goto_preset_by_id(
     camera_id: str, request: PTZPresetRequest, db: AsyncSession = Depends(get_db)
 ):
     """Go to preset using camera_id"""
-    ptz_service, onvif_cam, camera = await get_ptz_service(camera_id, db)
-
     try:
-        media_service = onvif_cam.create_media_service()
-        profiles = media_service.GetProfiles()
-        profile_token = profiles[0].token
+        handler, camera = await get_onvif_handler(camera_id, db)
 
-        ptz_service.GotoPreset(
-            {"ProfileToken": profile_token, "PresetToken": request.preset_token}
-        )
+        success = await handler.ptz_goto_preset(request.preset_token)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Goto preset command failed")
 
         return {
             "success": True,
@@ -532,6 +600,61 @@ async def ptz_goto_preset_by_id(
             "preset_token": request.preset_token,
         }
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ptz/{camera_id}/presets/set")
+async def ptz_set_preset_by_id(
+    camera_id: str, request: PTZSetPresetRequest, db: AsyncSession = Depends(get_db)
+):
+    """Set/create preset using camera_id"""
+    try:
+        handler, camera = await get_onvif_handler(camera_id, db)
+
+        token = await handler.ptz_set_preset(request.preset_name, request.preset_token)
+
+        if not token:
+            raise HTTPException(status_code=500, detail="Set preset command failed")
+
+        return {
+            "success": True,
+            "camera_id": camera_id,
+            "camera_name": camera.name,
+            "preset_name": request.preset_name,
+            "preset_token": token,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/ptz/{camera_id}/presets/{preset_token}")
+async def ptz_remove_preset_by_id(
+    camera_id: str, preset_token: str, db: AsyncSession = Depends(get_db)
+):
+    """Remove preset using camera_id"""
+    try:
+        handler, camera = await get_onvif_handler(camera_id, db)
+
+        success = await handler.ptz_remove_preset(preset_token)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Remove preset command failed")
+
+        return {
+            "success": True,
+            "camera_id": camera_id,
+            "camera_name": camera.name,
+            "preset_token": preset_token,
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -542,21 +665,44 @@ async def get_ptz_capabilities_by_id(
 ):
     """Get PTZ capabilities using camera_id"""
     try:
-        onvif_cam, camera = await get_onvif_camera(camera_id, db)
-        capabilities = onvif_cam.devicemgmt.GetCapabilities()
+        handler, camera = await get_onvif_handler(camera_id, db)
+
+        # Get device info to trigger auth discovery
+        device_info = await handler.get_device_info()
+        capabilities = await handler.get_capabilities()
+
+        # Get profiles to check for audio
+        profiles = await handler.get_profiles()
+        has_audio = any("audio" in p.get("name", "").lower() for p in profiles)
+        capabilities["audio"] = has_audio
 
         return {
             "success": True,
             "camera_id": camera_id,
             "camera_name": camera.name,
-            "ptz_supported": hasattr(capabilities, "PTZ")
-            and capabilities.PTZ is not None,
+            "device": {
+                "manufacturer": device_info["manufacturer"],
+                "model": device_info["model"],
+                "firmware": device_info["firmware"],
+            },
+            "capabilities": {
+                "ptz": capabilities.get("ptz", False),
+                "audio": capabilities.get("audio", False),
+                "events": capabilities.get("events", False),
+                "imaging": capabilities.get("imaging", False),
+                "analytics": capabilities.get("analytics", False),
+                "device_io": capabilities.get("device_io", False),
+                "recording": capabilities.get("recording", False),
+                "profiles": len(profiles),
+            },
             "connection": {
                 "ip": camera.ip_address,
                 "onvif_port": camera.onvif_port,
-                "manufacturer": camera.manufacturer,
+                "auth_method": handler.working_auth.value
+                if handler.working_auth
+                else "unknown",
             },
-            "wsdl_path": WSDL_PATH,
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
