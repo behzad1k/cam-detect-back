@@ -6,8 +6,9 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from io import BytesIO
-from typing import Dict, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 import cv2
 import numpy as np
@@ -19,7 +20,9 @@ from app.config import settings
 from app.core.detection.yolo_detector import detector
 from app.core.tracking.speed_calculator import speed_calculator
 from app.database.base import get_db
+from app.schemas.alerts import AlertConfiguration
 from app.schemas.detection import Detection
+from app.services.alert_manager import alert_manager
 from app.services.camera_service import camera_service
 from app.services.stream_manager import stream_manager
 from app.utils.FPSRateLimiter import FPSRateLimiter
@@ -224,7 +227,16 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-# CRITICAL FIX: Synchronous processing function for thread pool
+def serialize_for_websocket(obj: Any) -> Any:
+    """Recursively serialize objects for WebSocket JSON"""
+    if isinstance(obj, datetime):
+        return obj.isoformat()  # ✅ Convert to ISO string
+    elif isinstance(obj, dict):
+        return {k: serialize_for_websocket(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_for_websocket(item) for item in obj]
+    else:
+        return obj
 
 
 def process_frame_sync(camera, image: np.ndarray) -> dict:
@@ -447,13 +459,36 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                 results["tracking"] = tracking_data
             except Exception as e:
                 logger.error(f"❌ Error in tracking: {e}", exc_info=True)
+            if camera.alert_config and tracking_data:
+                try:
+                    alert_config = AlertConfiguration(**camera.alert_config)
 
-        return {
-            "camera_id": camera_id,
-            "timestamp": int(time.time() * 1000),
-            "results": results,
-            "calibrated": camera.is_calibrated,
-        }
+                    # Process tracking data and get triggered alerts
+                    alerts = alert_manager.process_tracking_data(
+                        camera_id=camera_id,
+                        camera_name=camera.name,
+                        camera_email=camera.alert_email,
+                        alert_config=alert_config,
+                        tracking_data=tracking_data,
+                    )
+
+                    # Add alerts to results (will be serialized later)
+                    if alerts:  # ✅ Check if alerts exist
+                        results["alerts"] = alerts  # Don't serialize yet!
+                        logger.info(
+                            f"🚨 {len(alerts)} alert(s) triggered for camera {camera_id}"
+                        )
+
+                except Exception as e:
+                    logger.error(f"❌ Alert processing error: {e}", exc_info=True)
+        return serialize_for_websocket(
+            {
+                "camera_id": camera_id,
+                "timestamp": int(time.time() * 1000),
+                "results": results,
+                "calibrated": camera.is_calibrated,
+            }
+        )
 
     except Exception as e:
         logger.error(f"❌ Critical error in process_frame_sync: {e}", exc_info=True)

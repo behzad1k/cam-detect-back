@@ -52,6 +52,9 @@ class CameraService:
         "created_at",
         "updated_at",
         "is_active",
+        "alert_email",
+        "email_enabled",
+        "cooldown_seconds",
     }
 
     @staticmethod
@@ -196,6 +199,7 @@ class CameraService:
         Update camera with new data
         If rtsp_url is updated, also update component fields
         """
+        print(camera_data)
         result = await db.execute(select(Camera).where(Camera.id == camera_id))
         camera = result.scalar_one_or_none()
 

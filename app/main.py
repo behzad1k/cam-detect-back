@@ -1,9 +1,19 @@
+# app/main.py - CLEAN VERSION USING ENRICHED SCHEMAS
+
 import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import cameras, health, http_camera_proxy, onvif, ptz_control, websocket
+from app.api import (
+    alerts,
+    cameras,
+    health,
+    http_camera_proxy,
+    onvif,
+    ptz_control,
+    websocket,
+)
 from app.config import settings
 from app.core.detection.yolo_detector import detector
 from app.database.base import init_db
@@ -17,7 +27,49 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Real-time multi-camera object detection and tracking system with PTZ control",
+    description="""
+# SeeDeep.AI REST API & WebSocket Documentation
+
+Real-time multi-camera object detection and tracking system with alerts.
+
+## Features
+- 📹 **Camera Management** - Add, configure, and manage multiple cameras
+- 🎯 **Real-time Object Detection** - Detect objects using YOLO models
+- 🔍 **Object Tracking** - Track objects across frames with unique IDs
+- 🚨 **Alert System** - Speed, tracking, and distance alerts
+- 📧 **Email Notifications** - Automated alert emails
+- 🎥 **PTZ Camera Control** - ONVIF-based pan-tilt-zoom control
+- 📡 **WebSocket Streaming** - Real-time video and data streaming
+
+## WebSocket Endpoint
+**URL:** `ws://{host}:{port}/ws/camera/{camera_id}`
+
+Real-time streaming of:
+- Video frames (base64-encoded)
+- Object detections
+- Tracking data
+- Speed and distance measurements
+- Alerts
+
+## Available Models
+- **general_detection** - Person, car, bicycle, motorcycle, etc.
+- **face_detection** - Faces with/without masks
+- **cap_detection** - Hard hats and safety caps
+- **weapon_detection** - Weapons (knife, pistol)
+- **fire_detection** - Fire and smoke
+
+## Quick Start
+1. **Add Camera:** `POST /api/v1/cameras`
+2. **Calibrate (optional):** `POST /api/v1/cameras/{id}/calibrate`
+3. **Configure Alerts:** `PUT /api/v1/alerts/{id}/config`
+4. **Connect WebSocket:** `ws://localhost:8000/ws/camera/{id}`
+
+## Documentation Formats
+- **Interactive Swagger UI:** `/docs` (this page)
+- **ReDoc:** `/redoc` (alternative UI)
+- **OpenAPI JSON:** Auto-generated spec
+- **Static Markdown:** Run `python generate_docs.py`
+    """,
     debug=settings.DEBUG,
 )
 
@@ -37,6 +89,7 @@ app.include_router(onvif.router, prefix=settings.API_V1_PREFIX)
 app.include_router(websocket.router)
 app.include_router(http_camera_proxy.router, prefix="/api/v1", tags=["camera-proxy"])
 app.include_router(ptz_control.router, prefix=settings.API_V1_PREFIX)
+app.include_router(alerts.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.on_event("startup")
@@ -60,6 +113,8 @@ async def startup_event():
             logger.warning(f"⚠️ Could not preload {model_name}: {e}")
 
     logger.info("✅ Application started successfully")
+    logger.info(f"📖 API Documentation: http://{settings.HOST}:{settings.PORT}/docs")
+    logger.info(f"📖 Alternative Docs: http://{settings.HOST}:{settings.PORT}/redoc")
 
 
 @app.on_event("shutdown")
