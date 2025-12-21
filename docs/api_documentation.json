@@ -1,0 +1,4054 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SeeDeep.AI API Documentation",
+    "description": "\n# SeeDeep.AI REST API & WebSocket Documentation\n\nReal-time multi-camera object detection and tracking system with alerts.\n\n## Features\n- \ud83d\udcf9 Camera Management\n- \ud83c\udfaf Real-time Object Detection\n- \ud83d\udd0d Object Tracking\n- \ud83d\udea8 Alert System (Speed, Tracking, Distance)\n- \ud83d\udce7 Email Notifications\n- \ud83c\udfa5 PTZ Camera Control\n- \ud83d\udce1 WebSocket Streaming\n\n## Authentication\nCurrently no authentication required. Add authentication headers when implemented.\n\n## Rate Limiting\nNo rate limits currently enforced.\n\n## WebSocket Endpoint\n- **URL**: `ws://{host}:{port}/ws/camera/{camera_id}`\n- **Protocol**: WebSocket\n- **Purpose**: Real-time video stream with detections, tracking, and alerts\n\n## Base URL\n- **Development**: `http://localhost:8000`\n- **Production**: Update with your production URL\n        ",
+    "version": "2.0.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Root",
+        "description": "Root endpoint",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Check",
+        "description": "Health check endpoint",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/": {
+      "post": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Create Camera",
+        "description": "Create a new camera",
+        "operationId": "create_camera_api_v1_cameras__post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CameraResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "List Cameras",
+        "description": "List all cameras",
+        "operationId": "list_cameras_api_v1_cameras__get",
+        "parameters": [
+          {
+            "name": "active_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Active Only"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CameraResponse"
+                  },
+                  "title": "Response List Cameras Api V1 Cameras  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}": {
+      "get": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Get Camera",
+        "description": "Get a specific camera",
+        "operationId": "get_camera_api_v1_cameras__camera_id__get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CameraResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Update Camera",
+        "description": "Update a camera - FIXED with retry logic for concurrent access",
+        "operationId": "update_camera_api_v1_cameras__camera_id__patch",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CameraResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Delete Camera",
+        "description": "Delete a camera",
+        "operationId": "delete_camera_api_v1_cameras__camera_id__delete",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/calibrate": {
+      "post": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Calibrate Camera",
+        "description": "Calibrate a camera for pixel-to-meter conversion",
+        "operationId": "calibrate_camera_api_v1_cameras__camera_id__calibrate_post",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraCalibration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CameraResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/models": {
+      "get": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Get Available Models",
+        "description": "Get available detection models",
+        "operationId": "get_available_models_api_v1_cameras__camera_id__models_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/features": {
+      "patch": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Update Camera Features",
+        "description": "Update camera feature configuration - FIXED with retry logic",
+        "operationId": "update_camera_features_api_v1_cameras__camera_id__features_patch",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureConfiguration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CameraResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/test-connection": {
+      "post": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Test Camera Connection",
+        "description": "Test camera connection (RTSP/HTTP/WEBCAM) and return a preview frame",
+        "operationId": "test_camera_connection_api_v1_cameras_test_connection_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/detection-classes": {
+      "patch": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Update Detection Classes",
+        "description": "Update detection classes for a camera",
+        "operationId": "update_detection_classes_api_v1_cameras__camera_id__detection_classes_patch",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Classes"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CameraResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/calibration": {
+      "get": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Get Calibration Info",
+        "description": "Get current calibration information",
+        "operationId": "get_calibration_info_api_v1_cameras__camera_id__calibration_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Clear Calibration",
+        "description": "Clear camera calibration",
+        "operationId": "clear_calibration_api_v1_cameras__camera_id__calibration_delete",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/calibration/test": {
+      "post": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Test Calibration",
+        "description": "Test calibration without saving (preview mode)",
+        "operationId": "test_calibration_api_v1_cameras__camera_id__calibration_test_post",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraCalibration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/frame": {
+      "get": {
+        "tags": [
+          "cameras"
+        ],
+        "summary": "Get Camera Frame",
+        "description": "Get a single frame from camera (RTSP/HTTP/WEBCAM) for calibration",
+        "operationId": "get_camera_frame_api_v1_cameras__camera_id__frame_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onvif/discover": {
+      "post": {
+        "tags": [
+          "onvif"
+        ],
+        "summary": "Discover Camera",
+        "description": "Discover camera capabilities via ONVIF\n\nFixed for Dahua cameras with proper WS-Security authentication",
+        "operationId": "discover_camera_api_v1_onvif_discover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ONVIFDiscoverRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onvif/ptz/move": {
+      "post": {
+        "tags": [
+          "onvif"
+        ],
+        "summary": "Ptz Move",
+        "description": "Control PTZ camera movement",
+        "operationId": "ptz_move_api_v1_onvif_ptz_move_post",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ip"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Username"
+            }
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Password"
+            }
+          },
+          {
+            "name": "x",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.0,
+              "title": "X"
+            }
+          },
+          {
+            "name": "y",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.0,
+              "title": "Y"
+            }
+          },
+          {
+            "name": "z",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.0,
+              "title": "Z"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onvif/ptz/stop": {
+      "post": {
+        "tags": [
+          "onvif"
+        ],
+        "summary": "Ptz Stop",
+        "description": "Stop PTZ movement",
+        "operationId": "ptz_stop_api_v1_onvif_ptz_stop_post",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ip"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Username"
+            }
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Password"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/stream": {
+      "get": {
+        "tags": [
+          "camera-proxy"
+        ],
+        "summary": "Proxy Camera Stream",
+        "description": "Proxy camera MJPEG stream - browser compatible version",
+        "operationId": "proxy_camera_stream_api_v1_cameras__camera_id__stream_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "tags": [
+          "camera-proxy"
+        ],
+        "summary": "Proxy Camera Stream Options",
+        "description": "Handle CORS preflight",
+        "operationId": "proxy_camera_stream_options_api_v1_cameras__camera_id__stream_options",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/discover": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Discover Camera Endpoint",
+        "description": "Discover camera capabilities via ONVIF\n\nSupports multiple authentication methods:\n- SOAP with WS-Security\n- HTTP Digest Auth\n- HTTP Basic Auth\n\nAutomatically detects which method works.",
+        "operationId": "discover_camera_endpoint_api_v1_ptz_discover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ONVIFDiscoverRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/move": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Move Direct",
+        "description": "Control PTZ camera movement using direct IP/credentials\n\nExample:\nPOST /api/v1/ptz/move?ip=192.168.1.12&username=admin&password=pass&x=0.5&y=0&z=0",
+        "operationId": "ptz_move_direct_api_v1_ptz_move_post",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Camera IP address",
+              "title": "Ip"
+            },
+            "description": "Camera IP address"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF username",
+              "title": "Username"
+            },
+            "description": "ONVIF username"
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF password",
+              "title": "Password"
+            },
+            "description": "ONVIF password"
+          },
+          {
+            "name": "x",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "description": "Pan: -1.0 (left) to 1.0 (right)",
+              "default": 0.0,
+              "title": "X"
+            },
+            "description": "Pan: -1.0 (left) to 1.0 (right)"
+          },
+          {
+            "name": "y",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "description": "Tilt: -1.0 (down) to 1.0 (up)",
+              "default": 0.0,
+              "title": "Y"
+            },
+            "description": "Tilt: -1.0 (down) to 1.0 (up)"
+          },
+          {
+            "name": "z",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "description": "Zoom: -1.0 (out) to 1.0 (in)",
+              "default": 0.0,
+              "title": "Z"
+            },
+            "description": "Zoom: -1.0 (out) to 1.0 (in)"
+          },
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "ONVIF port",
+              "default": 80,
+              "title": "Port"
+            },
+            "description": "ONVIF port"
+          },
+          {
+            "name": "timeout",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Movement timeout in seconds",
+              "default": 1,
+              "title": "Timeout"
+            },
+            "description": "Movement timeout in seconds"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/stop": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Stop Direct",
+        "description": "Stop PTZ movement using direct IP/credentials\n\nExample:\nPOST /api/v1/ptz/stop?ip=192.168.1.12&username=admin&password=pass",
+        "operationId": "ptz_stop_direct_api_v1_ptz_stop_post",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Camera IP address",
+              "title": "Ip"
+            },
+            "description": "Camera IP address"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF username",
+              "title": "Username"
+            },
+            "description": "ONVIF username"
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF password",
+              "title": "Password"
+            },
+            "description": "ONVIF password"
+          },
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "ONVIF port",
+              "default": 80,
+              "title": "Port"
+            },
+            "description": "ONVIF port"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/position": {
+      "get": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Get Position Direct",
+        "description": "Get current PTZ position using direct IP/credentials\n\nExample:\nGET /api/v1/ptz/position?ip=192.168.1.12&username=admin&password=pass",
+        "operationId": "ptz_get_position_direct_api_v1_ptz_position_get",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Camera IP address",
+              "title": "Ip"
+            },
+            "description": "Camera IP address"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF username",
+              "title": "Username"
+            },
+            "description": "ONVIF username"
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF password",
+              "title": "Password"
+            },
+            "description": "ONVIF password"
+          },
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "ONVIF port",
+              "default": 80,
+              "title": "Port"
+            },
+            "description": "ONVIF port"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/presets": {
+      "get": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz List Presets Direct",
+        "description": "List PTZ presets using direct IP/credentials\n\nExample:\nGET /api/v1/ptz/presets?ip=192.168.1.12&username=admin&password=pass",
+        "operationId": "ptz_list_presets_direct_api_v1_ptz_presets_get",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Camera IP address",
+              "title": "Ip"
+            },
+            "description": "Camera IP address"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF username",
+              "title": "Username"
+            },
+            "description": "ONVIF username"
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF password",
+              "title": "Password"
+            },
+            "description": "ONVIF password"
+          },
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "ONVIF port",
+              "default": 80,
+              "title": "Port"
+            },
+            "description": "ONVIF port"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Remove Preset Direct",
+        "description": "Remove a preset\n\nExample:\nDELETE /api/v1/ptz/presets?ip=192.168.1.12&username=admin&password=pass&preset_token=1",
+        "operationId": "ptz_remove_preset_direct_api_v1_ptz_presets_delete",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Camera IP address",
+              "title": "Ip"
+            },
+            "description": "Camera IP address"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF username",
+              "title": "Username"
+            },
+            "description": "ONVIF username"
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF password",
+              "title": "Password"
+            },
+            "description": "ONVIF password"
+          },
+          {
+            "name": "preset_token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Preset token to remove",
+              "title": "Preset Token"
+            },
+            "description": "Preset token to remove"
+          },
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "ONVIF port",
+              "default": 80,
+              "title": "Port"
+            },
+            "description": "ONVIF port"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/presets/goto": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Goto Preset Direct",
+        "description": "Go to preset using direct IP/credentials\n\nExample:\nPOST /api/v1/ptz/presets/goto?ip=192.168.1.12&username=admin&password=pass&preset_token=1",
+        "operationId": "ptz_goto_preset_direct_api_v1_ptz_presets_goto_post",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Camera IP address",
+              "title": "Ip"
+            },
+            "description": "Camera IP address"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF username",
+              "title": "Username"
+            },
+            "description": "ONVIF username"
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF password",
+              "title": "Password"
+            },
+            "description": "ONVIF password"
+          },
+          {
+            "name": "preset_token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Preset token to go to",
+              "title": "Preset Token"
+            },
+            "description": "Preset token to go to"
+          },
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "ONVIF port",
+              "default": 80,
+              "title": "Port"
+            },
+            "description": "ONVIF port"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/presets/set": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Set Preset Direct",
+        "description": "Set/create a preset at current position\n\nExample:\nPOST /api/v1/ptz/presets/set?ip=192.168.1.12&username=admin&password=pass&preset_name=MyPreset",
+        "operationId": "ptz_set_preset_direct_api_v1_ptz_presets_set_post",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Camera IP address",
+              "title": "Ip"
+            },
+            "description": "Camera IP address"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF username",
+              "title": "Username"
+            },
+            "description": "ONVIF username"
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ONVIF password",
+              "title": "Password"
+            },
+            "description": "ONVIF password"
+          },
+          {
+            "name": "preset_name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Name for the new preset",
+              "title": "Preset Name"
+            },
+            "description": "Name for the new preset"
+          },
+          {
+            "name": "preset_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional preset token to update",
+              "title": "Preset Token"
+            },
+            "description": "Optional preset token to update"
+          },
+          {
+            "name": "port",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "ONVIF port",
+              "default": 80,
+              "title": "Port"
+            },
+            "description": "ONVIF port"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/{camera_id}/move": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Move By Id",
+        "description": "Move PTZ camera using camera_id from database\n\nExample:\nPOST /api/v1/ptz/{camera_id}/move\nBody: {\"pan\": 0.3, \"tilt\": 0, \"zoom\": 0, \"timeout\": 2}",
+        "operationId": "ptz_move_by_id_api_v1_ptz__camera_id__move_post",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PTZMoveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/{camera_id}/stop": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Stop By Id",
+        "description": "Stop PTZ movement using camera_id\n\nExample:\nPOST /api/v1/ptz/{camera_id}/stop",
+        "operationId": "ptz_stop_by_id_api_v1_ptz__camera_id__stop_post",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/{camera_id}/position": {
+      "get": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Get Position By Id",
+        "description": "Get PTZ position using camera_id",
+        "operationId": "ptz_get_position_by_id_api_v1_ptz__camera_id__position_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/{camera_id}/presets": {
+      "get": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz List Presets By Id",
+        "description": "List PTZ presets using camera_id",
+        "operationId": "ptz_list_presets_by_id_api_v1_ptz__camera_id__presets_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/{camera_id}/presets/goto": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Goto Preset By Id",
+        "description": "Go to preset using camera_id",
+        "operationId": "ptz_goto_preset_by_id_api_v1_ptz__camera_id__presets_goto_post",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PTZPresetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/{camera_id}/presets/set": {
+      "post": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Set Preset By Id",
+        "description": "Set/create preset using camera_id",
+        "operationId": "ptz_set_preset_by_id_api_v1_ptz__camera_id__presets_set_post",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PTZSetPresetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/{camera_id}/presets/{preset_token}": {
+      "delete": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Ptz Remove Preset By Id",
+        "description": "Remove preset using camera_id",
+        "operationId": "ptz_remove_preset_by_id_api_v1_ptz__camera_id__presets__preset_token__delete",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          },
+          {
+            "name": "preset_token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Preset Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ptz/{camera_id}/capabilities": {
+      "get": {
+        "tags": [
+          "PTZ Control"
+        ],
+        "summary": "Get Ptz Capabilities By Id",
+        "description": "Get PTZ capabilities using camera_id",
+        "operationId": "get_ptz_capabilities_by_id_api_v1_ptz__camera_id__capabilities_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/{camera_id}/config": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Get Alert Config",
+        "description": "Get alert configuration for a camera",
+        "operationId": "get_alert_config_api_v1_alerts__camera_id__config_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertConfiguration"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Update Alert Config",
+        "description": "Update alert configuration for a camera\n\nExample:\n```json\n{\n  \"speed_alerts\": [\n    {\n      \"enabled\": true,\n      \"object_class\": \"car\",\n      \"threshold_kmh\": 50.0,\n      \"condition\": \"over\"\n    }\n  ],\n  \"tracking_alerts\": [\n    {\n      \"enabled\": true,\n      \"object_class\": \"person\",\n      \"threshold_seconds\": 30.0,\n      \"condition\": \"over\"\n    }\n  ],\n  \"distance_alerts\": [\n    {\n      \"enabled\": true,\n      \"object_class\": \"person\",\n      \"threshold_meters\": 2.0,\n      \"condition\": \"under\"\n    }\n  ],\n  \"email_enabled\": true,\n  \"cooldown_seconds\": 60\n}\n```\n\nNote: Alerts will be sent via the existing WebSocket connection for this camera.",
+        "operationId": "update_alert_config_api_v1_alerts__camera_id__config_put",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertConfiguration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertConfiguration"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/{camera_id}/email": {
+      "patch": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Update Alert Email",
+        "description": "Update alert email address for a camera",
+        "operationId": "update_alert_email_api_v1_alerts__camera_id__email_patch",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Email"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/{camera_id}/history": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Get Alert History",
+        "description": "Get recent alert history for a camera",
+        "operationId": "get_alert_history_api_v1_alerts__camera_id__history_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Alert"
+                  },
+                  "title": "Response Get Alert History Api V1 Alerts  Camera Id  History Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/{camera_id}/stats": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Get Alert Stats",
+        "description": "Get alert statistics for a camera",
+        "operationId": "get_alert_stats_api_v1_alerts__camera_id__stats_get",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertStats"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/{camera_id}/test-email": {
+      "post": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Test Email Alert",
+        "description": "Send test email alert",
+        "operationId": "test_email_alert_api_v1_alerts__camera_id__test_email_post",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Camera Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ws/camera/{camera_id}": {
+      "get": {
+        "tags": [
+          "WebSocket"
+        ],
+        "summary": "Camera WebSocket Stream",
+        "description": "\n# Real-time Camera Stream with Detections, Tracking, and Alerts\n\nConnect to this WebSocket endpoint to receive real-time video frames with:\n- Object detections from multiple models\n- Object tracking with IDs\n- Speed calculations\n- Distance measurements\n- **Alerts** (speed, tracking, distance)\n\n## Connection\n```javascript\nconst ws = new WebSocket('ws://localhost:8000/ws/camera/{camera_id}');\n\nws.onopen = () => {\n    console.log('Connected to camera stream');\n};\n\nws.onmessage = (event) => {\n    const data = JSON.parse(event.data);\n    // Handle detections, tracking, and alerts\n};\n\nws.onerror = (error) => {\n    console.error('WebSocket error:', error);\n};\n\nws.onclose = () => {\n    console.log('Disconnected from camera stream');\n};\n```\n\n## Message Format\nSee the schema below for the complete message structure.\n\n## Frame Rate\nControlled by camera's configured FPS (default: 15 fps).\n\n## Alerts\nAlerts are included in the same WebSocket message when triggered:\n- Speed alerts: When object speed exceeds/falls below threshold\n- Tracking alerts: When object stays in frame longer/shorter than threshold\n- Distance alerts: When object gets closer/farther than threshold\n            ",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Camera ID to stream from"
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket connection established",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebSocketResponse"
+                },
+                "examples": {
+                  "with_alerts": {
+                    "summary": "Message with alerts",
+                    "value": {
+                      "camera_id": "cam_001",
+                      "timestamp": 1704106800000,
+                      "results": {
+                        "general_detection": {
+                          "detections": [
+                            {
+                              "x1": 100.0,
+                              "y1": 200.0,
+                              "x2": 300.0,
+                              "y2": 400.0,
+                              "confidence": 0.95,
+                              "class_id": 0,
+                              "label": "person"
+                            }
+                          ],
+                          "count": 1,
+                          "model": "general_detection"
+                        },
+                        "tracking": {
+                          "tracked_objects": {
+                            "track_42": {
+                              "track_id": "track_42",
+                              "class_name": "person",
+                              "bbox": [
+                                100,
+                                200,
+                                300,
+                                400
+                              ],
+                              "centroid": [
+                                200,
+                                300
+                              ],
+                              "confidence": 0.95,
+                              "age": 150,
+                              "velocity": [
+                                2.5,
+                                1.2
+                              ],
+                              "distance_traveled": 45.6,
+                              "time_in_frame_seconds": 5.0,
+                              "speed_kmh": 12.5,
+                              "distance_from_camera_m": 3.2
+                            }
+                          },
+                          "summary": {
+                            "total_tracks": 1,
+                            "active_tracks": 1
+                          }
+                        },
+                        "alerts": [
+                          {
+                            "alert_id": "a1b2c3d4",
+                            "camera_id": "cam_001",
+                            "camera_name": "Entrance Camera",
+                            "timestamp": "2024-01-01T12:00:00",
+                            "alert_type": "speed",
+                            "object_class": "person",
+                            "track_id": "track_42",
+                            "threshold_value": 10.0,
+                            "actual_value": 12.5,
+                            "condition": "over",
+                            "unit": "km/h",
+                            "bbox": [
+                              100,
+                              200,
+                              300,
+                              400
+                            ],
+                            "centroid": [
+                              200,
+                              300
+                            ]
+                          }
+                        ]
+                      },
+                      "calibrated": true,
+                      "frame": "base64_encoded_image_data..."
+                    }
+                  },
+                  "without_alerts": {
+                    "summary": "Normal message (no alerts)",
+                    "value": {
+                      "camera_id": "cam_001",
+                      "timestamp": 1704106800000,
+                      "results": {
+                        "general_detection": {
+                          "detections": [],
+                          "count": 0,
+                          "model": "general_detection"
+                        }
+                      },
+                      "calibrated": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Alert": {
+        "type": "object",
+        "description": "Alert triggered by object detection/tracking",
+        "properties": {
+          "alert_id": {
+            "type": "string",
+            "description": "Unique alert ID"
+          },
+          "camera_id": {
+            "type": "string"
+          },
+          "camera_name": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "alert_type": {
+            "type": "string",
+            "enum": [
+              "speed",
+              "tracking",
+              "distance"
+            ],
+            "description": "Type of alert"
+          },
+          "object_class": {
+            "type": "string",
+            "description": "Object that triggered alert"
+          },
+          "track_id": {
+            "type": "string",
+            "description": "Tracking ID of object"
+          },
+          "threshold_value": {
+            "type": "number",
+            "description": "Configured threshold"
+          },
+          "actual_value": {
+            "type": "number",
+            "description": "Actual measured value"
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "over",
+              "under"
+            ],
+            "description": "Alert condition"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "km/h",
+              "seconds",
+              "meters"
+            ],
+            "description": "Unit of measurement"
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Bounding box of object",
+            "nullable": true
+          },
+          "centroid": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Center point of object",
+            "nullable": true
+          }
+        }
+      },
+      "AlertConfiguration": {
+        "properties": {
+          "speed_alerts": {
+            "items": {
+              "$ref": "#/components/schemas/SpeedAlertRule"
+            },
+            "type": "array",
+            "title": "Speed Alerts",
+            "description": "List of speed alert rules (requires camera calibration and speed feature enabled)"
+          },
+          "tracking_alerts": {
+            "items": {
+              "$ref": "#/components/schemas/TrackingAlertRule"
+            },
+            "type": "array",
+            "title": "Tracking Alerts",
+            "description": "List of tracking/dwell time alert rules (requires tracking feature enabled)"
+          },
+          "distance_alerts": {
+            "items": {
+              "$ref": "#/components/schemas/DistanceAlertRule"
+            },
+            "type": "array",
+            "title": "Distance Alerts",
+            "description": "List of distance alert rules (requires camera calibration and distance feature enabled)"
+          },
+          "email_enabled": {
+            "type": "boolean",
+            "title": "Email Enabled",
+            "description": "Enable/disable email notifications for alerts",
+            "default": true
+          },
+          "cooldown_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cooldown Seconds",
+            "description": "Cooldown period to prevent alert spam (same alert won't trigger within this period)",
+            "default": 60,
+            "example": 60
+          }
+        },
+        "type": "object",
+        "title": "AlertConfiguration",
+        "description": "Complete alert configuration for a camera",
+        "example": {
+          "cooldown_seconds": 60,
+          "distance_alerts": [
+            {
+              "condition": "under",
+              "enabled": true,
+              "object_class": "person",
+              "threshold_meters": 2.0
+            }
+          ],
+          "email_enabled": true,
+          "speed_alerts": [
+            {
+              "condition": "over",
+              "enabled": true,
+              "object_class": "car",
+              "threshold_kmh": 50.0
+            },
+            {
+              "condition": "over",
+              "enabled": true,
+              "object_class": "motorcycle",
+              "threshold_kmh": 40.0
+            }
+          ],
+          "tracking_alerts": [
+            {
+              "condition": "over",
+              "enabled": true,
+              "object_class": "person",
+              "threshold_seconds": 30.0
+            }
+          ]
+        }
+      },
+      "AlertStats": {
+        "properties": {
+          "camera_id": {
+            "type": "string",
+            "title": "Camera Id",
+            "description": "Camera ID",
+            "example": "cam_001"
+          },
+          "total_alerts": {
+            "type": "integer",
+            "title": "Total Alerts",
+            "description": "Total number of alerts",
+            "example": 127
+          },
+          "alerts_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Alerts By Type",
+            "description": "Alert counts by type",
+            "example": {
+              "distance": 20,
+              "speed": 45,
+              "tracking": 62
+            }
+          },
+          "alerts_by_class": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Alerts By Class",
+            "description": "Alert counts by object class",
+            "example": {
+              "car": 45,
+              "person": 82
+            }
+          },
+          "last_alert_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Alert Time",
+            "description": "Timestamp of most recent alert",
+            "example": "2024-01-01T12:30:00Z"
+          }
+        },
+        "type": "object",
+        "required": [
+          "camera_id",
+          "total_alerts",
+          "alerts_by_type",
+          "alerts_by_class"
+        ],
+        "title": "AlertStats",
+        "description": "Alert statistics for a camera",
+        "example": {
+          "alerts_by_class": {
+            "car": 45,
+            "person": 82
+          },
+          "alerts_by_type": {
+            "distance": 20,
+            "speed": 45,
+            "tracking": 62
+          },
+          "camera_id": "cam_001",
+          "last_alert_time": "2024-01-01T12:30:00Z",
+          "total_alerts": 127
+        }
+      },
+      "CalibrationPoint": {
+        "properties": {
+          "pixel_x": {
+            "type": "number",
+            "title": "Pixel X",
+            "description": "X coordinate in pixels",
+            "example": 100.0
+          },
+          "pixel_y": {
+            "type": "number",
+            "title": "Pixel Y",
+            "description": "Y coordinate in pixels",
+            "example": 200.0
+          },
+          "real_x": {
+            "type": "number",
+            "title": "Real X",
+            "description": "Real-world X coordinate in meters",
+            "example": 0.0
+          },
+          "real_y": {
+            "type": "number",
+            "title": "Real Y",
+            "description": "Real-world Y coordinate in meters",
+            "example": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "pixel_x",
+          "pixel_y",
+          "real_x",
+          "real_y"
+        ],
+        "title": "CalibrationPoint",
+        "description": "Single calibration point with pixel and real-world coordinates",
+        "example": {
+          "pixel_x": 100.0,
+          "pixel_y": 200.0,
+          "real_x": 0.0,
+          "real_y": 0.0
+        }
+      },
+      "CameraCalibration": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "description": "Calibration mode: 'reference_object' or 'perspective_transform'",
+            "example": "reference_object"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationPoint"
+            },
+            "type": "array",
+            "title": "Points",
+            "description": "Calibration points (min 2 for reference_object, 4 for perspective_transform)"
+          },
+          "reference_width_meters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Width Meters",
+            "description": "Known width for reference object in meters",
+            "example": 2.0
+          },
+          "reference_height_meters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Height Meters",
+            "description": "Known height for reference object in meters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "points"
+        ],
+        "title": "CameraCalibration",
+        "description": "Camera calibration configuration",
+        "example": {
+          "mode": "reference_object",
+          "points": [
+            {
+              "pixel_x": 100,
+              "pixel_y": 200,
+              "real_x": 0,
+              "real_y": 0
+            },
+            {
+              "pixel_x": 350,
+              "pixel_y": 200,
+              "real_x": 2,
+              "real_y": 0
+            }
+          ],
+          "reference_width_meters": 2.0
+        }
+      },
+      "CameraCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Camera display name",
+            "example": "Entrance Camera"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location",
+            "description": "Camera location description",
+            "example": "Main Entrance"
+          },
+          "rtsp_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtsp Url",
+            "description": "RTSP/HTTP stream URL or webcam://0 for local webcam",
+            "example": "rtsp://admin:password@192.168.1.12:554/cam/realmonitor?channel=1&subtype=0"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width",
+            "description": "Frame width in pixels",
+            "default": 640,
+            "example": 1920
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height",
+            "description": "Frame height in pixels",
+            "default": 480,
+            "example": 1080
+          },
+          "fps": {
+            "type": "integer",
+            "title": "Fps",
+            "description": "Frames per second",
+            "default": 15,
+            "example": 30
+          },
+          "features": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Features",
+            "description": "Feature configuration for the camera"
+          },
+          "active_models": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Models",
+            "description": "Detection models to use (auto-determined from detection_classes if not specified)",
+            "example": [
+              "general_detection",
+              "face_detection"
+            ]
+          },
+          "selected_classes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Classes",
+            "description": "Selected classes (frontend compatibility)",
+            "example": [
+              "person",
+              "car"
+            ]
+          },
+          "calibration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CameraCalibration"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional calibration data for the camera"
+          },
+          "alert_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Email",
+            "description": "Email address for alert notifications",
+            "example": "alerts@company.com"
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol",
+            "description": "Protocol: rtsp, http, onvif",
+            "example": "rtsp"
+          },
+          "ipAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ipaddress",
+            "description": "Camera IP address",
+            "example": "192.168.1.12"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port",
+            "description": "Connection port",
+            "example": "554"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CameraCreate",
+        "description": "Schema for creating a new camera",
+        "example": {
+          "active_models": [
+            "general_detection"
+          ],
+          "alert_email": "alerts@company.com",
+          "features": {
+            "counting": false,
+            "detection": true,
+            "detection_classes": [
+              "person",
+              "car",
+              "motorcycle"
+            ],
+            "distance": false,
+            "distance_classes": [],
+            "speed": true,
+            "speed_classes": [
+              "car",
+              "motorcycle"
+            ],
+            "tracking": true,
+            "tracking_classes": [
+              "person"
+            ]
+          },
+          "fps": 30,
+          "height": 1080,
+          "location": "Main Entrance",
+          "name": "Entrance Camera",
+          "rtsp_url": "rtsp://admin:password@192.168.1.12:554/cam/realmonitor?channel=1&subtype=0",
+          "width": 1920
+        }
+      },
+      "CameraResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Camera display name",
+            "example": "Entrance Camera"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location",
+            "description": "Camera location description",
+            "example": "Main Entrance"
+          },
+          "rtsp_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtsp Url",
+            "description": "RTSP/HTTP stream URL or webcam://0 for local webcam",
+            "example": "rtsp://admin:password@192.168.1.12:554/cam/realmonitor?channel=1&subtype=0"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width",
+            "description": "Frame width in pixels",
+            "default": 640,
+            "example": 1920
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height",
+            "description": "Frame height in pixels",
+            "default": 480,
+            "example": 1080
+          },
+          "fps": {
+            "type": "integer",
+            "title": "Fps",
+            "description": "Frames per second",
+            "default": 15,
+            "example": 30
+          },
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Unique camera identifier",
+            "example": "f8e7d6c5-b4a3-4291-8e7f-1a2b3c4d5e6f"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address",
+            "description": "Camera IP address",
+            "example": "192.168.1.12"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username",
+            "description": "Camera username",
+            "example": "admin"
+          },
+          "rtsp_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtsp Port",
+            "description": "RTSP port",
+            "example": 554
+          },
+          "onvif_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onvif Port",
+            "description": "ONVIF port",
+            "example": 80
+          },
+          "is_calibrated": {
+            "type": "boolean",
+            "title": "Is Calibrated",
+            "description": "Whether camera is calibrated",
+            "example": true
+          },
+          "pixels_per_meter": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pixels Per Meter",
+            "description": "Calibration ratio",
+            "example": 125.5
+          },
+          "calibration_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibration Mode",
+            "description": "Calibration method used",
+            "example": "reference_object"
+          },
+          "calibration_points": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibration Points",
+            "description": "Calibration points"
+          },
+          "features": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Features",
+            "description": "Enabled features"
+          },
+          "active_models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Active Models",
+            "description": "Active detection models",
+            "example": [
+              "general_detection"
+            ]
+          },
+          "alert_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Email",
+            "description": "Email for alerts",
+            "example": "alerts@company.com"
+          },
+          "alert_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Config",
+            "description": "Alert configuration"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Creation timestamp"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Last update timestamp"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "description": "Camera active status",
+            "example": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "id",
+          "is_calibrated",
+          "features",
+          "active_models",
+          "created_at",
+          "is_active"
+        ],
+        "title": "CameraResponse",
+        "description": "Schema for camera response",
+        "example": {
+          "active_models": [
+            "general_detection"
+          ],
+          "alert_config": {
+            "cooldown_seconds": 60,
+            "distance_alerts": [],
+            "email_enabled": true,
+            "speed_alerts": [],
+            "tracking_alerts": []
+          },
+          "alert_email": "alerts@company.com",
+          "calibration_mode": "reference_object",
+          "calibration_points": [
+            {
+              "pixel_x": 100,
+              "pixel_y": 200,
+              "real_x": 0,
+              "real_y": 0
+            },
+            {
+              "pixel_x": 350,
+              "pixel_y": 200,
+              "real_x": 2,
+              "real_y": 0
+            }
+          ],
+          "created_at": "2024-01-01T12:00:00Z",
+          "features": {
+            "detection": true,
+            "detection_classes": [
+              "person",
+              "car"
+            ],
+            "distance": true,
+            "speed": true,
+            "tracking": true
+          },
+          "fps": 30,
+          "height": 1080,
+          "id": "f8e7d6c5-b4a3-4291-8e7f-1a2b3c4d5e6f",
+          "ip_address": "192.168.1.12",
+          "is_active": true,
+          "is_calibrated": true,
+          "location": "Main Entrance",
+          "name": "Entrance Camera",
+          "onvif_port": 80,
+          "pixels_per_meter": 125.5,
+          "rtsp_port": 554,
+          "rtsp_url": "rtsp://admin:password@192.168.1.12:554/cam/realmonitor?channel=1&subtype=0",
+          "updated_at": "2024-01-01T13:00:00Z",
+          "username": "admin",
+          "width": 1920
+        }
+      },
+      "CameraUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Camera display name",
+            "example": "Updated Camera Name"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location",
+            "description": "Camera location",
+            "example": "New Location"
+          },
+          "rtsp_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtsp Url",
+            "description": "Stream URL",
+            "example": "rtsp://..."
+          },
+          "features": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Features",
+            "description": "Feature configuration"
+          },
+          "active_models": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Models",
+            "description": "Active detection models"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active",
+            "description": "Camera active status",
+            "example": true
+          },
+          "alert_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Email",
+            "description": "Alert email address"
+          },
+          "alert_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Config",
+            "description": "Alert configuration"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "CameraUpdate",
+        "description": "Schema for updating a camera (all fields optional)",
+        "example": {
+          "features": {
+            "detection": true,
+            "speed": true,
+            "tracking": true
+          },
+          "is_active": true,
+          "location": "New Location",
+          "name": "Updated Camera Name"
+        }
+      },
+      "DistanceAlertRule": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Enable/disable this alert rule",
+            "default": true,
+            "example": true
+          },
+          "object_class": {
+            "type": "string",
+            "title": "Object Class",
+            "description": "Object class to monitor (e.g., person, car)",
+            "example": "person"
+          },
+          "threshold_meters": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Threshold Meters",
+            "description": "Distance threshold in meters",
+            "example": 5.0
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "over",
+              "under"
+            ],
+            "title": "Condition",
+            "description": "Alert when distance goes over/under threshold",
+            "default": "under",
+            "example": "under"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_class",
+          "threshold_meters"
+        ],
+        "title": "DistanceAlertRule",
+        "description": "Distance alert configuration",
+        "example": {
+          "condition": "under",
+          "enabled": true,
+          "object_class": "person",
+          "threshold_meters": 2.0
+        }
+      },
+      "FeatureConfiguration": {
+        "properties": {
+          "detection": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection",
+            "description": "Enable/disable object detection",
+            "example": true
+          },
+          "tracking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracking",
+            "description": "Enable/disable object tracking",
+            "example": true
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed",
+            "description": "Enable/disable speed calculation (requires calibration)",
+            "example": true
+          },
+          "distance": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance",
+            "description": "Enable/disable distance calculation (requires calibration)",
+            "example": true
+          },
+          "counting": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counting",
+            "description": "Enable/disable object counting",
+            "example": false
+          },
+          "class_filters": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Filters",
+            "description": "Per-model class filters (deprecated, use detection_classes)",
+            "example": {
+              "face_detection": [
+                "mask"
+              ],
+              "general_detection": [
+                "person",
+                "car"
+              ]
+            }
+          },
+          "tracking_classes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracking Classes",
+            "description": "Which classes to track (empty = track all detected)",
+            "example": [
+              "person",
+              "car"
+            ]
+          },
+          "speed_classes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed Classes",
+            "description": "Which classes to calculate speed for (empty = all tracked)",
+            "example": [
+              "car",
+              "motorcycle"
+            ]
+          },
+          "distance_classes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Classes",
+            "description": "Which classes to calculate distance for (empty = all tracked)",
+            "example": [
+              "person"
+            ]
+          },
+          "detection_classes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Classes",
+            "description": "Which classes to detect across all models (empty = all classes)",
+            "example": [
+              "person",
+              "car",
+              "motorcycle",
+              "mask",
+              "no_mask"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "FeatureConfiguration",
+        "description": "Camera feature configuration",
+        "example": {
+          "counting": false,
+          "detection": true,
+          "detection_classes": [
+            "person",
+            "car",
+            "motorcycle"
+          ],
+          "distance": true,
+          "distance_classes": [
+            "person"
+          ],
+          "speed": true,
+          "speed_classes": [
+            "car",
+            "motorcycle"
+          ],
+          "tracking": true,
+          "tracking_classes": [
+            "person",
+            "car"
+          ]
+        }
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ONVIFDiscoverRequest": {
+        "properties": {
+          "ip": {
+            "type": "string",
+            "title": "Ip"
+          },
+          "port": {
+            "type": "integer",
+            "title": "Port",
+            "default": 80
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ip",
+          "username",
+          "password"
+        ],
+        "title": "ONVIFDiscoverRequest"
+      },
+      "PTZMoveRequest": {
+        "properties": {
+          "pan": {
+            "type": "number",
+            "title": "Pan",
+            "default": 0.0
+          },
+          "tilt": {
+            "type": "number",
+            "title": "Tilt",
+            "default": 0.0
+          },
+          "zoom": {
+            "type": "number",
+            "title": "Zoom",
+            "default": 0.0
+          },
+          "timeout": {
+            "type": "integer",
+            "title": "Timeout",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "title": "PTZMoveRequest"
+      },
+      "PTZPresetRequest": {
+        "properties": {
+          "preset_token": {
+            "type": "string",
+            "title": "Preset Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset_token"
+        ],
+        "title": "PTZPresetRequest"
+      },
+      "PTZSetPresetRequest": {
+        "properties": {
+          "preset_name": {
+            "type": "string",
+            "title": "Preset Name"
+          },
+          "preset_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset_name"
+        ],
+        "title": "PTZSetPresetRequest"
+      },
+      "SpeedAlertRule": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Enable/disable this alert rule",
+            "default": true,
+            "example": true
+          },
+          "object_class": {
+            "type": "string",
+            "title": "Object Class",
+            "description": "Object class to monitor (e.g., person, car, motorcycle)",
+            "example": "car"
+          },
+          "threshold_kmh": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Threshold Kmh",
+            "description": "Speed threshold in km/h",
+            "example": 50.0
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "over",
+              "under"
+            ],
+            "title": "Condition",
+            "description": "Alert when speed goes over/under threshold",
+            "default": "over",
+            "example": "over"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_class",
+          "threshold_kmh"
+        ],
+        "title": "SpeedAlertRule",
+        "description": "Speed alert configuration",
+        "example": {
+          "condition": "over",
+          "enabled": true,
+          "object_class": "car",
+          "threshold_kmh": 50.0
+        }
+      },
+      "TestConnectionRequest": {
+        "properties": {
+          "rtsp_url": {
+            "type": "string",
+            "title": "Rtsp Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rtsp_url"
+        ],
+        "title": "TestConnectionRequest"
+      },
+      "TrackingAlertRule": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Enable/disable this alert rule",
+            "default": true,
+            "example": true
+          },
+          "object_class": {
+            "type": "string",
+            "title": "Object Class",
+            "description": "Object class to monitor (e.g., person, car)",
+            "example": "person"
+          },
+          "threshold_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Threshold Seconds",
+            "description": "Time threshold in seconds",
+            "default": 0.0,
+            "example": 30.0
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "over",
+              "under"
+            ],
+            "title": "Condition",
+            "description": "Alert when time goes over/under threshold",
+            "default": "over",
+            "example": "over"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_class"
+        ],
+        "title": "TrackingAlertRule",
+        "description": "Tracking/dwell time alert configuration",
+        "example": {
+          "condition": "over",
+          "enabled": true,
+          "object_class": "person",
+          "threshold_seconds": 30.0
+        }
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WebSocketResponse": {
+        "type": "object",
+        "properties": {
+          "camera_id": {
+            "type": "string",
+            "description": "Camera identifier"
+          },
+          "timestamp": {
+            "type": "integer",
+            "description": "Unix timestamp in milliseconds"
+          },
+          "results": {
+            "type": "object",
+            "description": "Detection, tracking, and alert results",
+            "properties": {
+              "{model_name}": {
+                "type": "object",
+                "description": "Detection results from a specific model",
+                "properties": {
+                  "detections": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Detection"
+                    }
+                  },
+                  "count": {
+                    "type": "integer"
+                  },
+                  "model": {
+                    "type": "string"
+                  }
+                }
+              },
+              "tracking": {
+                "type": "object",
+                "description": "Object tracking results",
+                "properties": {
+                  "tracked_objects": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/TrackedObject"
+                    }
+                  },
+                  "summary": {
+                    "type": "object",
+                    "properties": {
+                      "total_tracks": {
+                        "type": "integer"
+                      },
+                      "active_tracks": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              },
+              "alerts": {
+                "type": "array",
+                "description": "Triggered alerts (only present when alerts are triggered)",
+                "items": {
+                  "$ref": "#/components/schemas/Alert"
+                }
+              }
+            }
+          },
+          "calibrated": {
+            "type": "boolean",
+            "description": "Whether camera is calibrated for distance/speed"
+          },
+          "frame": {
+            "type": "string",
+            "description": "Base64 encoded JPEG image (optional)",
+            "nullable": true
+          }
+        }
+      },
+      "Detection": {
+        "type": "object",
+        "properties": {
+          "x1": {
+            "type": "number",
+            "description": "Bounding box top-left X"
+          },
+          "y1": {
+            "type": "number",
+            "description": "Bounding box top-left Y"
+          },
+          "x2": {
+            "type": "number",
+            "description": "Bounding box bottom-right X"
+          },
+          "y2": {
+            "type": "number",
+            "description": "Bounding box bottom-right Y"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Detection confidence (0-1)"
+          },
+          "class_id": {
+            "type": "integer",
+            "description": "Class ID"
+          },
+          "label": {
+            "type": "string",
+            "description": "Object class name"
+          }
+        }
+      },
+      "TrackedObject": {
+        "type": "object",
+        "properties": {
+          "track_id": {
+            "type": "string",
+            "description": "Unique tracking ID"
+          },
+          "class_name": {
+            "type": "string",
+            "description": "Object class"
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Bounding box [x1, y1, x2, y2]"
+          },
+          "centroid": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Center point [x, y]"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "age": {
+            "type": "integer",
+            "description": "Frames tracked"
+          },
+          "velocity": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Velocity [vx, vy] in pixels/frame"
+          },
+          "distance_traveled": {
+            "type": "number",
+            "description": "Total distance in pixels"
+          },
+          "time_in_frame_seconds": {
+            "type": "number",
+            "description": "Time in frame (seconds)"
+          },
+          "speed_kmh": {
+            "type": "number",
+            "description": "Speed in km/h (if calibrated)",
+            "nullable": true
+          },
+          "distance_from_camera_m": {
+            "type": "number",
+            "description": "Distance from camera in meters (if calibrated)",
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}
