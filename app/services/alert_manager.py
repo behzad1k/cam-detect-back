@@ -2,10 +2,12 @@
 """
 Alert Manager Service - WebSocket Version
 Handles alert detection and email notifications
+FIXED: Email sending in background thread without asyncio issues
 """
 
 import logging
 import smtplib
+import threading
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -334,29 +336,42 @@ class AlertManager:
                 -self.max_history_per_camera :
             ]
 
-        # Send email notification (non-blocking)
+        # Send email notification (non-blocking) - FIXED VERSION
         if alert_config.email_enabled and camera_email:
             try:
-                import asyncio
+                # Convert Alert object to dict for email
+                alert_dict = alert.dict()
 
-                loop = asyncio.get_event_loop()
-                loop.run_in_executor(None, self._send_email_alert, camera_email, alert)
+                # Run email sending in background thread (no asyncio issues)
+                email_thread = threading.Thread(
+                    target=self.send_email_alert,
+                    args=(alert_dict, camera_email),
+                    daemon=True,  # Thread will terminate when main program exits
+                )
+                email_thread.start()
+                logger.info(f"📧 Email alert queued for {camera_email}")
             except Exception as e:
-                logger.error(f"Failed to send email alert: {e}")
+                logger.error(f"Failed to queue email alert: {e}", exc_info=True)
 
         # Return alert dict for WebSocket
         return alert.dict()
 
     # ==================== EMAIL NOTIFICATIONS ====================
+
     def send_email_alert(self, alert_data: dict, email_to: str) -> bool:
-        """Send email alert synchronously"""
+        """
+        Send email alert synchronously
+
+        This method runs in a background thread, so it's safe to block
+        """
         server = None
         try:
-            smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-            smtp_port = int(os.getenv("SMTP_PORT", "587"))
-            smtp_user = os.getenv("SMTP_USER")
-            smtp_password = os.getenv("SMTP_PASSWORD")
-            from_email = os.getenv("SMTP_FROM", smtp_user)
+            # Use settings object (loaded by pydantic-settings from .env)
+            smtp_server = settings.SMTP_SERVER
+            smtp_port = settings.SMTP_PORT
+            smtp_user = settings.SMTP_USERNAME
+            smtp_password = settings.SMTP_PASSWORD
+            from_email = settings.SMTP_FROM_EMAIL or smtp_user
 
             if not smtp_user or not smtp_password:
                 logger.warning("⚠️ SMTP credentials not configured")
@@ -418,81 +433,24 @@ class AlertManager:
                 """
             msg.attach(MIMEText(html, "html"))
 
-            # ✅ FIXED: Explicit SMTP with sendmail()
+            # Send email
             server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.sendmail(from_email, [email_to], msg.as_string())
             server.quit()
 
-            logger.info(f"✅ Email sent to {email_to}")
+            logger.info(f"✅ Email sent successfully to {email_to}")
             return True
 
         except Exception as e:
-            logger.error(f"❌ Email failed: {e}")
+            logger.error(f"❌ Email failed to {email_to}: {e}", exc_info=True)
             if server:
                 try:
                     server.quit()
                 except:
                     pass
             return False
-
-    def _create_email_html(self, alert: Alert) -> str:
-        """Create HTML email body"""
-        condition_emoji = "⬆️" if alert.condition == "over" else "⬇️"
-
-        html = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        padding: 30px; text-align: center; color: white;">
-              <h1 style="margin: 0;">🚨 Alert Triggered</h1>
-              <p style="margin: 10px 0 0 0; font-size: 18px;">{alert.camera_name}</p>
-            </div>
-
-            <div style="padding: 30px; background: #f7f7f7;">
-              <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                <h2 style="margin-top: 0; color: #333;">
-                  {alert.alert_type.title()} Alert {condition_emoji}
-                </h2>
-                <table style="width: 100%; border-collapse: collapse;">
-                  <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Object Type:</strong></td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;">{alert.object_class}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Threshold:</strong></td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;">
-                      {alert.condition} {alert.threshold_value} {alert.unit}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Actual Value:</strong></td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; color: #e53e3e; font-weight: bold;">
-                      {alert.actual_value} {alert.unit}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Time:</strong></td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;">
-                      {alert.timestamp.strftime("%Y-%m-%d %H:%M:%S")}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 10px;"><strong>Track ID:</strong></td>
-                    <td style="padding: 10px;">{alert.track_id}</td>
-                  </tr>
-                </table>
-              </div>
-
-              <div style="text-align: center; color: #666; font-size: 12px;">
-                <p>This is an automated alert from SeeDeep.AI monitoring system</p>
-              </div>
-            </div>
-          </body>
-        </html>
-        """
-        return html
 
     # ==================== STATISTICS ====================
 

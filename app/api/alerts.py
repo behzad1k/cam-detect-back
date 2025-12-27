@@ -190,7 +190,7 @@ async def test_email_alert(camera_id: str, db: AsyncSession = Depends(get_db)):
     )
 
     try:
-        alert_manager._send_email_alert(camera.alert_email, test_alert)
+        alert_manager.send_email_alert(camera.alert_email, test_alert)
         return {"success": True, "message": f"Test email sent to {camera.alert_email}"}
     except Exception as e:
         logger.error(f"Test email failed: {e}")

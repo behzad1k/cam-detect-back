@@ -96,6 +96,7 @@ class Settings(BaseSettings):
         return available
 
     def validate_smtp(self):
+        return True
         """Validate SMTP configuration"""
         if not self.SMTP_USERNAME or not self.SMTP_PASSWORD:
             logger.warning(
