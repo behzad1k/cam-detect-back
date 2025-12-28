@@ -102,11 +102,11 @@ class ObjectTracker:
 
     def __init__(
         self,
-        max_age: int = 30,
+        max_age: int = 50,
         min_hits: int = 3,
         iou_threshold: float = 0.3,
         appearance_weight: float = 0.3,
-        distance_threshold: float = 100.0,
+        distance_threshold: float = 150.0,
     ):
         """
         Args:

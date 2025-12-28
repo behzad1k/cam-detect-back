@@ -34,19 +34,126 @@ logger = logging.getLogger(__name__)
 thread_pool = ThreadPoolExecutor(max_workers=4)
 
 
+class AsyncFrameProcessor:
+    """Process frames asynchronously without blocking WebSocket"""
+
+    def __init__(self, camera_id: str, max_queue_size: int = 10):
+        self.camera_id = camera_id
+        self.frame_queue = asyncio.Queue(maxsize=max_queue_size)
+        self.result_queue = asyncio.Queue(maxsize=max_queue_size)
+        self.processing = False
+        self.process_task = None
+        self.frames_submitted = 0
+        self.frames_processed = 0
+        self.frames_dropped = 0
+
+    async def start(self):
+        """Start background processing task"""
+        self.processing = True
+        self.process_task = asyncio.create_task(self._process_loop())
+        logger.info(f"✅ Started async processor for camera {self.camera_id}")
+
+    async def _process_loop(self):
+        """Background processing loop"""
+        loop = asyncio.get_event_loop()
+
+        while self.processing:
+            try:
+                # Wait for frame with timeout
+                frame, camera = await asyncio.wait_for(
+                    self.frame_queue.get(), timeout=1.0
+                )
+
+                # Process in thread pool (non-blocking)
+                result = await loop.run_in_executor(
+                    thread_pool, process_frame_sync, camera, frame
+                )
+
+                self.frames_processed += 1
+
+                # Put result (drop oldest if queue full)
+                try:
+                    self.result_queue.put_nowait(result)
+                except asyncio.QueueFull:
+                    try:
+                        # Drop oldest result
+                        old_result = self.result_queue.get_nowait()
+                        self.result_queue.put_nowait(result)
+                        logger.debug(f"Dropped old result for camera {self.camera_id}")
+                    except:
+                        pass
+
+            except asyncio.TimeoutError:
+                # No frames in queue, continue waiting
+                continue
+            except asyncio.CancelledError:
+                logger.info(f"Processing task cancelled for camera {self.camera_id}")
+                break
+            except Exception as e:
+                logger.error(
+                    f"❌ Processing error for camera {self.camera_id}: {e}",
+                    exc_info=True,
+                )
+                await asyncio.sleep(0.1)
+
+    async def submit_frame(self, frame: np.ndarray, camera):
+        """Submit frame for processing (non-blocking)"""
+        self.frames_submitted += 1
+
+        try:
+            # Try to add to queue
+            self.frame_queue.put_nowait((frame, camera))
+        except asyncio.QueueFull:
+            # Queue full, drop this frame
+            self.frames_dropped += 1
+            if self.frames_dropped % 10 == 1:
+                logger.warning(
+                    f"⚠️ Processor queue full for camera {self.camera_id}, "
+                    f"dropped {self.frames_dropped} frames so far"
+                )
+
+    async def get_result(self, timeout: float = 0.01):
+        """Get latest result (non-blocking)"""
+        try:
+            return await asyncio.wait_for(self.result_queue.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        except asyncio.QueueEmpty:
+            return None
+
+    def get_stats(self) -> dict:
+        """Get processor statistics"""
+        return {
+            "submitted": self.frames_submitted,
+            "processed": self.frames_processed,
+            "dropped": self.frames_dropped,
+            "queue_size": self.frame_queue.qsize(),
+            "result_queue_size": self.result_queue.qsize(),
+        }
+
+    async def stop(self):
+        """Stop processing"""
+        self.processing = False
+        if self.process_task:
+            self.process_task.cancel()
+            try:
+                await self.process_task
+            except asyncio.CancelledError:
+                pass
+        logger.info(f"🛑 Stopped async processor for camera {self.camera_id}")
+
+
 class StreamManager:
-    """Manage RTSP, HTTP, and WEBCAM streams for cameras - FIXED VERSION"""
+    """Manage RTSP, HTTP, and WEBCAM streams for cameras"""
 
     def __init__(self):
         self.streams: Dict[str, cv2.VideoCapture] = {}
         self.running: Dict[str, bool] = {}
-        self.stream_types: Dict[
-            str, str
-        ] = {}  # Track if stream is 'rtsp', 'http', or 'webcam'
-        self.failed_reads: Dict[str, int] = {}  # NEW: Track consecutive failures
+        self.stream_types: Dict[str, str] = {}
+        self.failed_reads: Dict[str, int] = {}
 
     def start_stream(self, camera_id: str, stream_url: str) -> bool:
-        """Start streaming from RTSP, HTTP, or WEBCAM URL - FIXED for MJPEG"""
+        """Start streaming from RTSP, HTTP, or WEBCAM URL"""
         if camera_id in self.streams:
             self.stop_stream(camera_id)
 
@@ -62,24 +169,18 @@ class StreamManager:
             stream_type = "http"
             logger.info(f"Opening HTTP stream: {stream_url}")
 
-            # FIX: Try FFmpeg backend first for better MJPEG handling
             try:
                 logger.info("Trying FFmpeg backend for MJPEG stream...")
                 cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-                # Test if FFmpeg works
                 ret, test_frame = cap.read()
                 if ret and test_frame is not None:
-                    logger.info(
-                        f"✅ Using FFmpeg backend for HTTP stream (more reliable)"
-                    )
-                    # Reopen to reset stream
+                    logger.info(f"✅ Using FFmpeg backend for HTTP stream")
                     cap.release()
                     cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
                     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 else:
-                    # FFmpeg failed, try default backend
                     logger.warning(
                         f"FFmpeg test failed, falling back to default backend"
                     )
@@ -94,8 +195,8 @@ class StreamManager:
         else:
             stream_type = "rtsp"
             logger.info(f"Opening RTSP stream: {stream_url}")
-            cap = cv2.VideoCapture(stream_url)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  # Larger buffer for RTSP
 
         if not cap.isOpened():
             logger.error(f"Failed to open {stream_type.upper()} stream: {stream_url}")
@@ -104,9 +205,8 @@ class StreamManager:
         self.streams[camera_id] = cap
         self.running[camera_id] = True
         self.stream_types[camera_id] = stream_type
-        self.failed_reads[camera_id] = 0  # NEW: Initialize failure counter
+        self.failed_reads[camera_id] = 0
 
-        # Log webcam properties
         if stream_type == "webcam":
             width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
             height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
@@ -137,7 +237,7 @@ class StreamManager:
                 del self.failed_reads[camera_id]
 
     def get_frame(self, camera_id: str) -> Optional[np.ndarray]:
-        """Get a frame from the stream - FIXED with reduced error logging"""
+        """Get a frame from the stream"""
         if camera_id not in self.streams:
             return None
 
@@ -145,10 +245,8 @@ class StreamManager:
         ret, frame = cap.read()
 
         if not ret:
-            # Track failures
             self.failed_reads[camera_id] = self.failed_reads.get(camera_id, 0) + 1
 
-            # Only log every 50th failure to reduce spam
             if self.failed_reads[camera_id] % 50 == 1:
                 logger.warning(
                     f"Failed to read frame from camera {camera_id} "
@@ -159,7 +257,6 @@ class StreamManager:
 
         # Success! Reset failure counter
         if self.failed_reads.get(camera_id, 0) > 0:
-            # Log recovery
             logger.info(
                 f"✅ Camera {camera_id} recovered after {self.failed_reads[camera_id]} failures"
             )
@@ -183,11 +280,9 @@ def calculate_distance_from_camera(
     centroid, pixels_per_meter, camera_width, camera_height
 ):
     """Calculate distance from camera using calibration"""
-    # Convert pixel position to meters
     real_x = centroid[0] / pixels_per_meter
     real_y = centroid[1] / pixels_per_meter
 
-    # Calculate distance (assuming camera is at origin)
     distance = np.sqrt(real_x**2 + real_y**2)
 
     return {
@@ -230,7 +325,7 @@ manager = ConnectionManager()
 def serialize_for_websocket(obj: Any) -> Any:
     """Recursively serialize objects for WebSocket JSON"""
     if isinstance(obj, datetime):
-        return obj.isoformat()  # ✅ Convert to ISO string
+        return obj.isoformat()
     elif isinstance(obj, dict):
         return {k: serialize_for_websocket(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -247,11 +342,25 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
     try:
         camera_id = camera.id
 
+        # OPTIMIZATION: Resize large frames for detection
+        original_shape = image.shape
+        scale = 1.0
+
+        if image.shape[1] > 1280:
+            scale = 1280 / image.shape[1]
+            new_width = 1280
+            new_height = int(image.shape[0] * scale)
+            image_detect = cv2.resize(image, (new_width, new_height))
+            logger.debug(
+                f"Resized {original_shape[1]}x{original_shape[0]} → {new_width}x{new_height}"
+            )
+        else:
+            image_detect = image
+
         if not stream_manager.is_active(camera_id):
             logger.info(f"🔄 Adding stream for camera {camera_id}")
             stream_manager.add_stream(camera)
 
-            # Get the EXISTING stream (don't create new one!)
         stream = stream_manager.get_stream(camera_id)
         if not stream:
             logger.error(f"❌ Failed to get stream for camera {camera_id}")
@@ -262,10 +371,11 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                 "calibrated": False,
                 "error": "Stream not available",
             }
+
         results = {}
         detected_objects = []
 
-        # DETECTION with proper error handling
+        # DETECTION
         if camera.features.get("detection", True):
             if not camera.active_models or len(camera.active_models) == 0:
                 logger.warning(
@@ -278,7 +388,6 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
 
             for model_name in camera.active_models:
                 try:
-                    # Check if model file exists
                     if model_name not in settings.AVAILABLE_MODELS:
                         logger.error(f"❌ Model {model_name} not in AVAILABLE_MODELS")
                         results[model_name] = {
@@ -289,7 +398,6 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                         }
                         continue
 
-                    # Try to load model if not loaded
                     if model_name not in detector.models:
                         logger.info(f"Loading model {model_name}...")
                         success = detector.load_model(model_name)
@@ -302,16 +410,12 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                             }
                             continue
 
-                    # Get class filter from detection_classes or class_filters
+                    # Get class filter
                     class_filter = None
-
-                    # First try detection_classes (new way)
                     detection_classes = camera.features.get("detection_classes", [])
                     if detection_classes:
-                        # Filter classes for this specific model
                         from app.config import settings as app_settings
 
-                        # Build reverse mapping: class -> model
                         class_to_model = {}
                         for (
                             available_model,
@@ -329,7 +433,6 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                                     f"Could not map classes for {available_model}: {e}"
                                 )
 
-                        # Filter detection_classes to only include classes from this model
                         class_filter = [
                             cls
                             for cls in detection_classes
@@ -342,7 +445,6 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                             )
                             class_filter = None
                     else:
-                        # Fall back to old class_filters way
                         class_filter = camera.features.get("class_filters", {}).get(
                             model_name
                         )
@@ -350,14 +452,13 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                     logger.debug(
                         f"🤖 Running model: {model_name} with filter: {class_filter}"
                     )
-                    model_result = detector.detect(image, model_name, class_filter)
+                    model_result = detector.detect(
+                        image_detect, model_name, class_filter
+                    )
 
-                    # Convert to dict properly
                     results[model_name] = model_result.dict()
-
                     logger.debug(f"✅ {model_name}: {model_result.count} detections")
 
-                    # Add detections to list for tracking
                     detected_objects.extend(model_result.detections)
 
                 except Exception as e:
@@ -399,7 +500,6 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                 }
 
                 for track_id, obj in tracked_objects.items():
-                    # Calculate time in seconds based on age (frames) and FPS
                     time_in_seconds = (
                         obj.age / camera.fps if camera.fps > 0 else obj.age / 30
                     )
@@ -410,11 +510,11 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                         "bbox": obj.bbox,
                         "centroid": obj.centroid,
                         "confidence": obj.confidence,
-                        "age": obj.age,  # Keep age in frames for reference
+                        "age": obj.age,
                         "velocity": obj.velocity,
                         "distance_traveled": obj.distance_traveled,
-                        "time_in_frame_seconds": time_in_seconds,  # NEW: Actual time in seconds
-                        "time_in_frame_frames": obj.age,  # Keep frame count for debugging
+                        "time_in_frame_seconds": time_in_seconds,
+                        "time_in_frame_frames": obj.age,
                     }
 
                     # SPEED CALCULATION
@@ -433,7 +533,7 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                         except Exception as e:
                             logger.error(f"Error calculating speed: {e}")
 
-                    # DISTANCE CALCULATION - FIXED
+                    # DISTANCE CALCULATION
                     distance_classes = camera.features.get("distance_classes", [])
                     if (
                         camera.features.get("distance", False)
@@ -441,11 +541,9 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                         and (not distance_classes or obj.class_name in distance_classes)
                     ):
                         try:
-                            # Convert pixel position to meters
                             real_x = obj.centroid[0] / camera.pixels_per_meter
                             real_y = obj.centroid[1] / camera.pixels_per_meter
 
-                            # Calculate distance (assuming camera is at origin)
                             distance = np.sqrt(real_x**2 + real_y**2)
 
                             obj_data["position_meters"] = {"x": real_x, "y": real_y}
@@ -459,28 +557,29 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
                 results["tracking"] = tracking_data
             except Exception as e:
                 logger.error(f"❌ Error in tracking: {e}", exc_info=True)
-            if camera.alert_config and tracking_data:
-                try:
-                    alert_config = AlertConfiguration(**camera.alert_config)
 
-                    # Process tracking data and get triggered alerts
-                    alerts = alert_manager.process_tracking_data(
-                        camera_id=camera_id,
-                        camera_name=camera.name,
-                        camera_email=camera.alert_email,
-                        alert_config=alert_config,
-                        tracking_data=tracking_data,
+        # ALERT PROCESSING
+        if camera.alert_config and tracking_data:
+            try:
+                alert_config = AlertConfiguration(**camera.alert_config)
+
+                alerts = alert_manager.process_tracking_data(
+                    camera_id=camera_id,
+                    camera_name=camera.name,
+                    camera_email=camera.alert_email,
+                    alert_config=alert_config,
+                    tracking_data=tracking_data,
+                )
+
+                if alerts:
+                    results["alerts"] = alerts
+                    logger.info(
+                        f"🚨 {len(alerts)} alert(s) triggered for camera {camera_id}"
                     )
 
-                    # Add alerts to results (will be serialized later)
-                    if alerts:  # ✅ Check if alerts exist
-                        results["alerts"] = alerts  # Don't serialize yet!
-                        logger.info(
-                            f"🚨 {len(alerts)} alert(s) triggered for camera {camera_id}"
-                        )
+            except Exception as e:
+                logger.error(f"❌ Alert processing error: {e}", exc_info=True)
 
-                except Exception as e:
-                    logger.error(f"❌ Alert processing error: {e}", exc_info=True)
         return serialize_for_websocket(
             {
                 "camera_id": camera_id,
@@ -492,7 +591,6 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
 
     except Exception as e:
         logger.error(f"❌ Critical error in process_frame_sync: {e}", exc_info=True)
-        # CRITICAL: Always return a valid dict, never None
         return {
             "camera_id": camera.id if camera else "unknown",
             "timestamp": int(time.time() * 1000),
@@ -504,10 +602,11 @@ def process_frame_sync(camera, image: np.ndarray) -> dict:
 
 @router.websocket("/ws/camera/{camera_id}")
 async def camera_websocket(websocket: WebSocket, camera_id: str):
-    """WebSocket endpoint for individual camera streams - SUPPORTS BOTH HTTP AND RTSP"""
+    """WebSocket endpoint for camera streams - ASYNC PROCESSING VERSION"""
     await manager.connect(websocket, camera_id)
 
-    # FIX: Get camera ONCE at the start, not for every frame
+    processor = None
+
     async for db in get_db():
         try:
             camera = await camera_service.get_camera(db, camera_id)
@@ -518,15 +617,14 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
             logger.info(f"📹 Camera {camera_id} config: rtsp_url={camera.rtsp_url}")
             logger.info(f"📹 Active models: {camera.active_models}")
 
-            # Frame rate configuration with FPS limiter
+            # Frame rate configuration
             target_fps = camera.fps if camera.fps else 15
-            fps_limiter = FPSRateLimiter(target_fps)  # NEW: Initialize FPS limiter
+            fps_limiter = FPSRateLimiter(target_fps)
 
             logger.info(f"🎥 Target FPS: {target_fps}")
 
-            # Handle RTSP or HTTP stream
+            # Start stream
             if camera.rtsp_url:
-                # Determine stream type based on URL
                 stream_type = (
                     "HTTP"
                     if camera.rtsp_url.startswith("http://")
@@ -557,85 +655,110 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
                     }
                 )
 
+                # Create async processor
+                processor = AsyncFrameProcessor(camera_id, max_queue_size=10)
+                await processor.start()
+
                 frame_count = 0
-                processed_count = 0
+                read_count = 0
+                last_stats_time = time.time()
+                last_result_time = time.time()
 
                 while stream_manager_ws.is_running(camera_id):
                     try:
-                        # Read frame from stream manager
+                        # Read frame from stream
                         frame = stream_manager_ws.get_frame(camera_id)
 
                         if frame is None:
                             await asyncio.sleep(0.01)
                             continue
 
-                        frame_count += 1
+                        read_count += 1
 
-                        # Check if we should process this frame based on FPS limiter
+                        # Check if we should process this frame
                         if not fps_limiter.should_process_frame():
-                            continue  # Skip this frame to maintain target FPS
-
-                        processed_count += 1
-
-                        # FIX: Pass camera object instead of doing DB query
-                        loop = asyncio.get_event_loop()
-                        result = await loop.run_in_executor(
-                            thread_pool, process_frame_sync, camera, frame
-                        )
-
-                        # CRITICAL FIX: Check if result is None
-                        if result is None:
-                            logger.error(
-                                f"❌ process_frame_sync returned None for camera {camera_id}"
-                            )
                             continue
 
-                        # OPTIMIZATION: Reduce JPEG quality for faster encoding
-                        send_frames = (
-                            True  # Set to True if frontend wants frames (legacy mode)
-                        )
+                        frame_count += 1
 
-                        if send_frames:
+                        # Submit frame to async processor (non-blocking)
+                        await processor.submit_frame(frame, camera)
+
+                        # Try to get result (non-blocking with short timeout)
+                        result = await processor.get_result(timeout=0.001)
+
+                        if result is not None:
+                            last_result_time = time.time()
+
+                            # OPTIONAL: Add frame to result
+                            # Set to False to improve performance
+                            send_frames = True
+
+                            if send_frames:
+                                try:
+                                    _, buffer = cv2.imencode(
+                                        ".webp", frame, [cv2.IMWRITE_WEBP_QUALITY, 80]
+                                    )
+                                    frame_base64 = base64.b64encode(buffer).decode(
+                                        "utf-8"
+                                    )
+                                    result["frame"] = frame_base64
+                                except Exception as e:
+                                    logger.error(f"❌ Error encoding frame: {e}")
+                            else:
+                                result["frame"] = None
+
+                            # Send result
                             try:
-                                _, buffer = cv2.imencode(
-                                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 100]
-                                )
-                                frame_base64 = base64.b64encode(buffer).decode("utf-8")
-                                result["frame"] = frame_base64
+                                await websocket.send_json(result)
                             except Exception as e:
-                                logger.error(f"❌ Error encoding frame: {e}")
-                                continue
-                        else:
-                            # Don't send frame data - frontend gets video from HLS
-                            result["frame"] = None
+                                logger.error(f"❌ Error sending WebSocket message: {e}")
+                                break
 
-                        # Send response
-                        try:
-                            await websocket.send_json(result)
-                        except Exception as e:
-                            logger.error(f"❌ Error sending WebSocket message: {e}")
-                            break
-
-                        if processed_count % 30 == 0:
+                        # Log stats periodically
+                        current_time = time.time()
+                        if current_time - last_stats_time >= 30:
                             actual_fps = fps_limiter.get_actual_fps()
+                            processor_stats = processor.get_stats()
                             current_stream_type = stream_manager_ws.get_stream_type(
                                 camera_id
                             )
+
                             logger.info(
                                 f"📊 {current_stream_type.upper()} camera {camera_id}:"
                             )
-                            logger.info(f"   Read: {frame_count} frames")
-                            logger.info(f"   Processed: {processed_count} frames")
+                            logger.info(f"   Read: {read_count} frames")
+                            logger.info(f"   Processed: {frame_count} frames")
                             logger.info(f"   Target FPS: {target_fps}")
                             logger.info(f"   Actual FPS: {actual_fps:.2f}")
+                            logger.info(
+                                f"   Processor: submitted={processor_stats['submitted']}, "
+                                f"processed={processor_stats['processed']}, "
+                                f"dropped={processor_stats['dropped']}"
+                            )
+                            logger.info(
+                                f"   Queue: frames={processor_stats['queue_size']}, "
+                                f"results={processor_stats['result_queue_size']}"
+                            )
 
-                            if result.get("results"):
+                            if result and result.get("results"):
                                 total_detections = sum(
                                     r.get("count", 0)
                                     for r in result["results"].values()
                                     if isinstance(r, dict) and "count" in r
                                 )
                                 logger.info(f"   Total detections: {total_detections}")
+
+                                if result["results"].get("tracking"):
+                                    tracking = result["results"]["tracking"]
+                                    logger.info(
+                                        f"   Active tracks: {tracking['summary']['active_tracks']}"
+                                    )
+
+                            last_stats_time = current_time
+
+                        # Small yield to prevent CPU hogging
+                        await asyncio.sleep(0.001)
 
                     except Exception as e:
                         logger.error(
@@ -646,6 +769,8 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
 
         except WebSocketDisconnect:
             stream_manager_ws.stop_stream(camera_id)
+            if processor:
+                await processor.stop()
             manager.disconnect(websocket, camera_id)
             logger.info(f"🔴 WebSocket disconnected for camera {camera_id}")
             break
@@ -654,8 +779,14 @@ async def camera_websocket(websocket: WebSocket, camera_id: str):
                 f"❌ WebSocket error for camera {camera_id}: {e}", exc_info=True
             )
             stream_manager_ws.stop_stream(camera_id)
+            if processor:
+                await processor.stop()
             try:
                 await websocket.send_json({"error": str(e)})
             except:
                 pass
             break
+        finally:
+            # Cleanup
+            if processor:
+                await processor.stop()

@@ -10,7 +10,6 @@ from app.api import (
     cameras,
     health,
     http_camera_proxy,
-    onvif,
     ptz_control,
     websocket,
 )
@@ -85,7 +84,6 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router)
 app.include_router(cameras.router, prefix=settings.API_V1_PREFIX)
-app.include_router(onvif.router, prefix=settings.API_V1_PREFIX)
 app.include_router(websocket.router)
 app.include_router(http_camera_proxy.router, prefix="/api/v1", tags=["camera-proxy"])
 app.include_router(ptz_control.router, prefix=settings.API_V1_PREFIX)
@@ -97,6 +95,21 @@ async def startup_event():
     """Initialize application on startup"""
     logger.info("🚀 Starting SeeDeep.AI...")
 
+    logger.info("\n" + "=" * 60)
+    logger.info("🖥️  RUNTIME DEVICE CHECK")
+    logger.info("=" * 60)
+
+    device = settings.DEVICE
+    logger.info(f"Configured device: {device}")
+
+    if device.type == "cuda":
+        logger.info(f"✅ Using NVIDIA GPU: {torch.cuda.get_device_name(0)}")
+    elif device.type == "mps":
+        logger.info(f"✅ Using Apple Silicon GPU (MPS)")
+    else:
+        logger.info(f"⚠️  Using CPU (no GPU acceleration)")
+
+    logger.info("=" * 60 + "\n")
     # Initialize database
     try:
         await init_db()

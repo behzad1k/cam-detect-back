@@ -42,22 +42,36 @@ class Settings(BaseSettings):
     MAX_DETECTIONS: int = 100
     FORCE_CPU: bool = False
 
-    # Device
     @property
     def DEVICE(self) -> torch.device:
-        return torch.device(
-            "cuda" if torch.cuda.is_available() and not self.FORCE_CPU else "cpu"
-        )
+        # Check for Apple Metal Performance Shaders (MPS)
+        if torch.backends.mps.is_available() and not self.FORCE_CPU:
+            return torch.device("mps")
+        elif torch.cuda.is_available() and not self.FORCE_CPU:
+            return torch.device("cuda")
+        else:
+            return torch.device("cpu")
 
     # Available Models
+    MODEL_FORMAT: str = "onnx"  # "pt" or "onnx"
+
+    # Available Models - ONNX versions
     AVAILABLE_MODELS: dict = {
+        "face_detection": "Facemask.onnx",
+        "cap_detection": "Cap.onnx",
+        "weapon_detection": "Weapon.onnx",
+        "fire_detection": "Fire.onnx",
+        "general_detection": "YOLO.onnx",
+    }
+
+    # Fallback to .pt if ONNX not found
+    AVAILABLE_MODELS_PT: dict = {
         "face_detection": "Facemask.pt",
         "cap_detection": "Cap.pt",
         "weapon_detection": "Weapon.pt",
         "fire_detection": "Fire.pt",
         "general_detection": "YOLO.pt",
     }
-
     # SMTP Settings for Email Alerts
     SMTP_SERVER: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
